@@ -122,6 +122,7 @@ scripts/minikube-up.sh                 # build the image from src/ (this machine
 scripts/minikube-up.sh --tag <tag>     # use ghcr.io/yoyobesser/echo-pong:<tag> instead, e.g. a commit SHA from CI
 scripts/minikube-up.sh --test          # deploy, then run every e2e suite and exit with the result
 scripts/minikube-up.sh --port 80       # listener on :80 (minikube tunnel asks for sudo below 1024)
+scripts/minikube-up.sh --status        # what's running + URL, token, curls again (changes nothing)
 scripts/minikube-up.sh --down          # delete the cluster
 ```
 
@@ -134,3 +135,5 @@ What it does:
 5. Prints the URL, the token and ready-to-paste curls, then keeps the tunnel in the foreground. Ctrl-C stops the tunnel; the cluster stays up for a quick rerun.
 
 With `--test`, it runs the same suites as CI's `e2e-tests` job for the local arch instead of holding the tunnel: CLI and API e2e against the image, the static-binary check, binary e2e on ubuntu and alpine, and API e2e through the live Gateway URL. It prints a pass/fail table and exits non-zero if any suite failed.
+
+`--status` checks the cluster, the release image, pod readiness, whether a tunnel is running, the Gateway address and `/health`, and then prints the same URL, token and curls as a normal run. It exits 0 only if the app answers through the tunnel. If the tunnel is down, it says so: rerun the script to reconnect.
