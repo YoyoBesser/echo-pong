@@ -12,6 +12,8 @@ Rules for every workflow in this directory. Repo-wide rules: [../../AGENTS.md](.
 - Images are built once for both arches and go to GHCR as the multi-arch `<image>:<sha>` (full commit SHA). The registry cache is `<branch-slug>-cache`, falling back to `main-cache` ([docs/CI.md#image-tags](../../docs/CI.md#image-tags)). Image names, registry hosts and slugs come from `gather-metadata` outputs, never hand-built.
 - Steps that can't work under act (artifact upload/download) set `continue-on-error: ${{ !!env.ACT }}`: non-fatal locally, blocking on GitHub. Run workflows locally through `.github/scripts/act.sh` ([docs/LOCAL-TESTING.md#act-wrapper](../../docs/LOCAL-TESTING.md#act-wrapper)).
 - Default `permissions: contents: read`. A job that pushes images adds `packages: write`. A job that only pulls adds `packages: read`.
+- Security scans are never inlined. Call [`scan-source.yml`](scan-source.yml) / [`scan-image.yml`](scan-image.yml) with `blocking:`, so CI and release run identical checks ([docs/CI.md#reusable-scans](../../docs/CI.md#reusable-scans)).
+- Inside reusable workflows, log in with `${{ github.token }}`, not `secrets.GITHUB_TOKEN`. act doesn't pass secrets into called workflows.
 - Untrusted values (`head_ref`, commit messages, inputs) go through `env:`, never inline `${{ }}` in `run:` ([docs/CI.md#script-injection](../../docs/CI.md#script-injection)).
 
 ## Checks and the summary tables

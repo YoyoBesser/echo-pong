@@ -6,7 +6,7 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint, SAST, SCA](#go-lint), [multi-arch build](#build) (GHCR push, [cache](#build-cache)) + [image scan](#image-scan), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
 | [`github-ci.yml`](../.github/workflows/github-ci.yml) | `.github/**` | [actionlint, ruff, pytest at 100% coverage](#github-ci), [summary](#build-summary) |
 | [`docs-ci.yml`](../.github/workflows/docs-ci.yml) | every change (no path filter) | [doc links](#doc-links), [summary](#build-summary) |
@@ -44,7 +44,7 @@ On `pull_request`, `actions/checkout` fetches only the merge commit (`fetch-dept
 
 ## Go lint
 
-The `lint` job runs five Go checks in `src/`, each as its own step (and its own [summary](#build-summary) row), all with the `e2e` build tag so the e2e tests are covered too:
+Five Go checks run on `src/`, each as its own step and [summary](#build-summary) row, all with the `e2e` build tag so the e2e tests are covered too. The `lint` job runs the three `tests` checks. gosec and govulncheck run in the reusable [`scan-source`](#reusable-scans) workflow, so release runs exactly the same ones:
 
 | Step | Kind | Catches |
 |---|---|---|
@@ -105,7 +105,6 @@ Each cache is saved only when its key missed, so a hit costs a restore and no up
 After the push, the same job:
 
 - Copies each arch's binary out of the pushed index with [`extract-binary.sh`](../.github/scripts/extract-binary.sh), fails unless it's static, and uploads both as artifact `binaries` (`amd64/`, `arm64/`). See [Binary e2e](#binary-e2e).
-- [Scans](#image-scan) each arch with [`trivy-image.sh`](../.github/scripts/trivy-image.sh).
 
 Target-arch execution (e2e, minikube) happens later, in `e2e-tests` on native runners per arch.
 
@@ -180,7 +179,7 @@ Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minim
 
 Temporary: every check step that fails on the exercise's original code or the basic chart runs with step-level `continue-on-error: true`:
 
-- `app-ci.yml`: golangci-lint, `go vet`, staticcheck, gosec, govulncheck, trivy image.
+- `app-ci.yml`: golangci-lint, `go vet`, staticcheck, plus the [reusable scans](#reusable-scans) called with `blocking: false` (gosec, govulncheck, trivy image). Release calls the same scans with `blocking: true`.
 - `helm-ci.yml`: helm lint, template, kubeconform, kube-linter. `trivy config` is **blocking**: the chart passes its README gate since it gained a securityContext ([HELM.md#security-context](HELM.md#security-context)).
 
 This PR only adds the skeleton. It fixes nothing in the original `main.go`/`go.mod` (11 lint issues, 22 HIGH Go stdlib CVEs from Go 1.24) and doesn't harden the chart. Fixes come in later PRs, with CI as the guardrail.
@@ -213,9 +212,25 @@ The `binary e2e (ubuntu, alpine)` step in each arch's [`e2e-tests` job](#e2e-tes
 
 Artifacts don't keep file modes, so the step runs `chmod +x` first. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
 
+## Reusable scans
+
+Security scans are defined once, as reusable workflows (`on: workflow_call`), and called by both CI and release:
+
+| Workflow | Jobs | Checks |
+|---|---|---|
+| [`scan-source.yml`](../.github/workflows/scan-source.yml) | `scan-source` | gosec (SAST), govulncheck (SCA). See [SAST and SCA](#sast-and-sca) |
+| [`scan-image.yml`](../.github/workflows/scan-image.yml) | `scan-image (amd64)`, `scan-image (arm64)` | trivy vuln + image misconfig, govulncheck-filtered. See [Image scan](#image-scan) |
+
+Both take a `blocking` input. With `true`, a finding fails the job. With `false`, the step runs under `continue-on-error`, so the finding shows as `⚠️` in the [summary](#build-summary) but nothing fails.
+
+- `app-ci.yml` calls them with `blocking: false` until the original code is fixed (see [Soft-fail](#soft-fail)).
+- `release.yml` calls them with `blocking: true` as the release gate (README L51, L87). `publish`, the only job that would tag `vX.Y.Z`, `needs:` both scans. A finding means no version tag, so nothing is released. `scan-image` scans the same `<image>:<sha>` digest that `publish` will retag, so what's released is exactly what was scanned.
+
+Results recorded inside a called workflow land in the caller's run, so the caller's `summary` job picks them up like any other job.
+
 ## Image scan
 
-`build` scans each arch of the pushed index ([`trivy-image.sh`](../.github/scripts/trivy-image.sh), `trivy image --platform linux/<arch>`) for CRITICAL/HIGH vulnerabilities (OS packages and the Go binary) and image-config misconfigurations (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them.
+The reusable [`scan-image`](#reusable-scans) workflow scans each arch of the pushed index (one matrix leg per arch, [`trivy-image.sh`](../.github/scripts/trivy-image.sh), `trivy image --platform linux/<arch>`) for CRITICAL/HIGH vulnerabilities (OS packages and the Go binary) and image-config misconfigurations (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them.
 
 Go-binary findings go through [`trivy-plugin-govulncheck`](https://github.com/DataDog/trivy-plugin-govulncheck) (v0.1.4). It runs govulncheck in binary mode on the image's Go binary, and drops (marks `not_affected`) the CVEs whose vulnerable code isn't reachable. The filtered JSON is then gated with `trivy convert --exit-code 1`, because the exit code of an output-plugin run doesn't reflect findings.
 

@@ -34,7 +34,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L51](../README.md?plain=1#L51): No critical/high vulnerabilities should be released to production**
   - [x] Distroless static base keeps CVE surface near zero ([CONTAINER.md#base-image](CONTAINER.md#base-image))
   - [x] CI fails on CRITICAL/HIGH, fixed or not (soft-fail until Go toolchain is bumped: 22 HIGH stdlib CVEs in Go 1.24)
-  - [ ] Scan gate in `release.yml` before any push; fail on CRITICAL/HIGH
+  - [x] Release gate: `release.yml` calls the same reusable scans with `blocking: true`; `publish` (the `vX.Y.Z` retag) needs both ([CI.md#reusable-scans](CI.md#reusable-scans))
+  - [ ] Release `image` job (build + push under SHA) still a placeholder
 - **[L52](../README.md?plain=1#L52): No secrets in codebase**
   - [x] Token only in an out-of-band Secret, never in values ([HELM.md#auth-secret](HELM.md#auth-secret))
   - [x] e2e generates a random token per run
