@@ -6,7 +6,7 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [summary](#build-summary) |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
 | [`common-ci.yml`](../.github/workflows/common-ci.yml) | every change (no path filter) | [actionlint, ruff, pytest at 100% coverage, doc links](#common-ci), [repo secret scan](#repo-scan), [summary](#build-summary) |
 
@@ -62,7 +62,18 @@ golangci-lint is limited to hygiene linters (`default: none`). vet, staticcheck 
 
 Both run on source. The built image is scanned separately (see [Image scan](#image-scan)).
 
-staticcheck and gosec ship checksum-verified release binaries. govulncheck doesn't, so it's built with `go install`. Both upstream modules require Go ≥ 1.26, so `GOTOOLCHAIN=auto` fetches a newer toolchain for that build only. The analysis itself uses the module's Go 1.24 toolchain, so stdlib findings match what we ship.
+govulncheck is built with `go install`, using the module's toolchain (go1.27.3, see [CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain)), and type-checks against that same stdlib. `go install` verifies modules against the Go checksum database (sum.golang.org).
+
+gosec runs through golangci-lint (`golangci-lint run --enable-only gosec`). The standalone gosec v2.29.0, the latest as of 2026-10-21, bundles an `x/tools` that can't read go1.27 export data (`could not import encoding/json`). golangci-lint v2.15.0 bundles gosec on a newer `x/tools`. It honors the same `#nosec` directives and, on the original `main.go`, still reports G104, G114, G304 and G706. It lacks the newer G703 taint rule, which can come back when a standalone gosec supports go1.27. The tools cache key includes `src/go.mod`, so a toolchain bump rebuilds them. staticcheck's checksum-verified release binary handles go1.27 fine.
+
+### Gosec exceptions
+
+Two gosec findings in `main.go` are deliberate, and are marked `#nosec <rule> -- <reason>` at the line:
+
+- **G304/G703 (file inclusion / path traversal)** on `os.Open(secretPath)`: the path comes from `SECRET_FILE_PATH`, which the operator sets. It's never request input, and reading it is the app's purpose.
+- **G706 (log injection)** on log lines with `r.RemoteAddr`, the secret path or `PORT`: `RemoteAddr` is the TCP peer `ip:port` set by `net/http`, so a client can't put text in it, and the other two are operator config. Quoting them instead would change the log format.
+
+Every other finding was fixed. G114 (no server timeouts) now runs an `http.Server` with read-header, read, write and idle timeouts. G104/errcheck: encode and write errors are handled and logged.
 
 ## Tool pins
 
@@ -70,7 +81,7 @@ Every CI tool version lives in one block in [`.github/actions/install-ci-tools`]
 
 | Suite | Installs |
 |---|---|
-| `app` | Go, golangci-lint, staticcheck, gosec, govulncheck |
+| `app` | Go, golangci-lint (also runs gosec), staticcheck, govulncheck |
 | `helm` | helm, kubeconform, kube-linter, trivy |
 | `minikube` | Go, helm, minikube, kubectl |
 | `scan` | trivy + `trivy-plugin-govulncheck` |
@@ -89,7 +100,7 @@ Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so 
 
 | Cache | Path | Key | Saves |
 |---|---|---|---|
-| Tools | `~/.cache/ci-tools/<suite>` | suite, OS, arch, hash of the pins block | Every downloaded binary, plus the trivy plugin tarball. On a hit, all download steps are skipped. Bumping any pin changes the hash, so the cache never serves stale versions |
+| Tools | `~/.cache/ci-tools/<suite>` | suite, OS, arch, hash of `install-ci-tools/action.yml` + `src/go.mod` | Every downloaded binary, plus the trivy plugin tarball. On a hit, all download steps are skipped. Changing any pin, the install logic or the Go toolchain changes the hash, so the cache never serves stale tools |
 | Go | setup-go's module + build cache | Go version + `src/go.mod` | Compiled packages for `go test`/vet, and the `go install` of govulncheck (including the newer toolchain it needs) |
 | minikube | `~/.minikube/cache` | arch, minikube version, `k8s-version` | Preload tarball + kicbase image (~1 GB) that `minikube start` would download |
 | trivy | `~/.cache/trivy` | OS + UTC date (restore from any older day) | Vulnerability DB and misconfig checks bundle. Trivy still refreshes them when stale |
@@ -104,7 +115,7 @@ Each cache is saved only when its key missed, so a hit costs a restore and no up
 
 After the push, the same job:
 
-- Copies each arch's binary out of the pushed index with [`extract-binary.sh`](../.github/scripts/extract-binary.sh), fails unless it's static, and uploads both as artifact `binaries` (`amd64/`, `arm64/`). See [Binary e2e](#binary-e2e).
+- Copies each arch's binary out of the pushed index with [`extract-binary.sh`](../.github/scripts/extract-binary.sh), and fails unless it's static. See [Static binary](#static-binary).
 
 Target-arch execution (e2e, minikube) happens later, in `e2e-tests` on native runners per arch.
 
@@ -117,7 +128,7 @@ Every CI run pushes to `ghcr.io/<owner>/<repo>` (lowercased by [`gather-metadata
 | `<sha>` | OCI index (amd64 + arm64) for the full commit SHA, which is the PR head commit on PRs (see [PR head commit](#pr-head-commit)) |
 | `<branch-slug>-cache` | [Build cache](#build-cache) |
 
-`branch-slug` is the branch lowercased, with runs of characters outside `[a-z0-9._-]` replaced by `-`, so `feat/yonatan.besser/home-assignment-init` becomes `feat-yonatan.besser-home-assignment-init`. Provenance attestations are off for CI images (`provenance: false`). Signing and SBOMs belong to the release workflow.
+`branch-slug` is the branch lowercased, with runs of characters outside `[a-z0-9._-]` replaced by `-`, so `feat/yonatan.besser/home-assignment-init` becomes `feat-yonatan.besser-home-assignment-init`. Provenance attestations are off for CI images (`provenance: false`).
 
 Pushing needs `packages: write`, granted only to `build`. `e2e-tests` gets `packages: read`. PRs from forks get a read-only `GITHUB_TOKEN`, so they can't push. This repo's PRs come from branches in the same repo. Per-commit tags pile up. The [cleanup workflow](#image-cleanup) prunes them.
 
@@ -141,11 +152,10 @@ The target is set by env. `E2E_IMAGE` makes the tests start containers themselve
 | CLI | `TestCLI` | `--help`, ping/pong, wrong/missing password, missing/unknown command, missing `SECRET_FILE_PATH` |
 | API | `TestAPI` | `/health`, `/`, `/ping` and `/pong` with no, wrong, raw and `Bearer` tokens |
 
-The `e2e-tests` job runs once per arch on a native runner (`fail-fast: false`). It pulls the multi-arch `<image>:<sha>` from GHCR and fails unless the runner resolved its own arch, which also checks the index. It downloads the `binaries` artifact (using `dist/<arch>/`), then runs the suites in sequence, fastest first, so a broken image fails within seconds:
+The `e2e-tests` job runs once per arch on a native runner (`fail-fast: false`). It pulls the multi-arch `<image>:<sha>` from GHCR and fails unless the runner resolved its own arch, which also checks the index. It then runs the suites in sequence, fastest first:
 
 - `CLI e2e`: `go test -run '^TestCLI$'` against containers.
 - `API e2e`: `go test -run '^TestAPI$'` against a container.
-- `binary e2e (ubuntu, alpine)`: both suites against the static binary on stock distros (see [Binary e2e](#binary-e2e)).
 - `minikube e2e`: `TestAPI` through the Gateway of a live deploy (see [Minikube e2e](#minikube-e2e)).
 
 The first failing suite fails the job, and later suites are skipped.
@@ -173,6 +183,8 @@ CRDs (Gateway API `Gateway`/`HTTPRoute`/`GatewayClass`, Envoy `EnvoyProxy`) aren
 
 [`helm/.kube-linter.yaml`](../helm/.kube-linter.yaml) sets `doNotAutoAddDefaults: true` and lists every check explicitly. Each line carries a comment naming the README requirement it enforces, so the policy is the README's requirements made executable, and nothing more.
 
+kube-linter runs on the chart rendered **without** the Envoy Gateway subchart (`--set envoy-gateway.enabled=false`). The policy covers what this repo writes. The subchart's templates are third-party and can't satisfy every check (e.g. probes on its certgen Job). kubeconform and the trivy gate still cover the full render, and the subchart passes the trivy gate.
+
 Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minimum-two-replicas`) instead of the built-in 3. Two replicas plus a PDB keep a pod serving through a rolling update or a single node drain. README L59 (registry pull) has no static check. It's covered by deploying, not linting.
 
 ## Gating
@@ -187,9 +199,9 @@ Every check gates the run. Nothing uses `continue-on-error` except the act-only 
 | `helm-ci.yml` | `lint` (dependency build, helm lint, template, kubeconform, kube-linter, trivy config) |
 | `common-ci.yml` | `lint`, `test`, `doc-links`, `scan-repo` |
 
-**Run everything, then fail** for e2e. In each arch's `e2e-tests` job, every suite after the first has `if: ${{ !cancelled() }}`. A failing suite doesn't stop the rest: CLI, API, binary on ubuntu/alpine and minikube all run. The job still fails if any of them failed, and the summary shows exactly which ones. One e2e run tells you everything that's broken.
+**Run everything, then fail** for e2e. In each arch's `e2e-tests` job, every suite after the first has `if: ${{ !cancelled() }}`. A failing suite doesn't stop the rest: CLI, API and minikube all run. The job still fails if any of them failed, and the summary shows exactly which ones. One e2e run tells you everything that's broken.
 
-The exercise's original code still fails these gates until it's fixed: golangci-lint, `go vet` and gosec on `main.go`, govulncheck and trivy on the Go 1.24 stdlib, and kube-linter on the basic chart. Those fixes come next, on this branch.
+Everything passes since the original findings were fixed: `main.go` lint, vet and gosec ([Gosec exceptions](#gosec-exceptions)), the Go stdlib CVEs ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain)), and the chart ([HELM.md](HELM.md)). The e2e suites weren't changed, so the app's behavior is the same.
 
 ## Minikube e2e
 
@@ -205,15 +217,13 @@ The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), 
 6. `kubectl port-forward` the Envoy proxy Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
 7. Delete the cluster on exit (unless `KEEP_CLUSTER=1`).
 
-## Binary e2e
+## Static binary
 
-The release binary is the one inside the image, not a separate build. For each arch, `build` runs [`extract-binary.sh`](../.github/scripts/extract-binary.sh): `docker create --platform linux/<arch>` on the pushed index, then `docker cp` of `/usr/local/bin/ping-pong-app`. It fails unless `file` reports `statically linked`. Both binaries are uploaded as artifact `binaries`. The container and the binary release can't drift: they are the same bytes.
+The release binary is the one inside the image, not a separate build. For each arch, `build` runs [`extract-binary.sh`](../.github/scripts/extract-binary.sh): `docker create --platform linux/<arch>` on the pushed index, then `docker cp` of `/usr/local/bin/ping-pong-app`. It fails unless `file` reports `statically linked`. The container and the binary release can't drift: they are the same bytes.
 
 The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
 
-The `binary e2e (ubuntu, alpine)` step in each arch's [`e2e-tests` job](#e2e-tests) checks that on stock distros: `ubuntu:latest` for glibc and `alpine:latest` for musl, on the arch's native runner. For each OS, it copies the binary into a bare distro image with [`src/test/e2e/binary.Dockerfile`](../src/test/e2e/binary.Dockerfile) and runs the same CLI and API suites against it (one log group per OS). Nothing from the app image is reused except the binary.
-
-Artifacts don't keep file modes, so the step runs `chmod +x` first. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
+An earlier version also ran the e2e suites against the binary on stock `ubuntu` and `alpine` images. It was dropped for CI time: the static check plus the container suites cover the same binary. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
 
 ## Reusable scans
 

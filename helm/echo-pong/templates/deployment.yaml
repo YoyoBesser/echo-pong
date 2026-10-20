@@ -3,6 +3,9 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}
   labels: {{- include "echo-pong.labels" . | nindent 4 }}
+  annotations:
+    # The env var holds a file path; the secret is a mounted volume. See docs/HELM.md#auth-secret
+    ignore-check.kube-linter.io/env-var-secret: "SECRET_FILE_PATH is a path, not a secret value"
 spec:
   replicas: {{ .Values.replicaCount }}
   {{- with .Values.rollout.strategy }}
@@ -14,9 +17,19 @@ spec:
     metadata:
       labels: {{- include "echo-pong.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ .Release.Name }}
+      automountServiceAccountToken: false
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if .Values.antiAffinity.enabled }}
       affinity:
+        {{- with .Values.preferredArch }}
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [{{ . }}]}
+        {{- end }}
+        {{- if .Values.antiAffinity.enabled }}
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -24,12 +37,13 @@ spec:
                 topologyKey: kubernetes.io/hostname
                 labelSelector:
                   matchLabels: {{- include "echo-pong.selectorLabels" . | nindent 20 }}
-      {{- end }}
+        {{- end }}
       containers:
         - name: echo-pong
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
           env:
             - name: SECRET_FILE_PATH
               value: /var/run/secrets/echo-pong/token

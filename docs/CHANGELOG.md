@@ -58,18 +58,18 @@ Every PR entry requires:
 
 ---
 
-### 2026-10-21 - Gate CI: no more continue-on-error
+### 2026-10-21 - Gate CI and fix every finding
 
-**Intent:** Make CI an actual guardrail before fixing the original code.
+**Intent:** Make CI a real guardrail, then make the original code and chart pass it without changing app behavior.
 
-**Result:** Lint, unit tests, scans and chart checks fail fast; e2e runs every suite and fails the run on any failure, with the summary showing which.
+**Result:** Every check gates and passes: lint, unit tests and scans fail fast, e2e runs every suite and fails on any, with zero lint, SAST, SCA, image or chart findings.
 
 - **authors:** YoyoBesser
-- **dependencies:** none
-- **workflows:** `continue-on-error` removed from every check (act-only artifact steps excepted); reusable scans lose their `blocking` input (always blocking); `test` job runs `go test -race -vet=off ./...`; e2e suite steps use `if: !cancelled()` so all suites run
-- **delivery:** none
-- **guardrails:** `.github/workflows/AGENTS.md` gating rules replace the soft-fail rule; `docs/CI.md#gating`
-- **breaking changes:** CI now fails on the original `main.go` findings and Go 1.24 stdlib CVEs until they're fixed
+- **dependencies:** Go toolchain go1.27.3 (`toolchain` line in `src/go.mod`, builder `golang:1.27.3`), language version stays `go 1.24`
+- **workflows:** `continue-on-error` removed from every check; reusable scans always blocking; `test` runs `go test -race -vet=off ./...`; e2e suites run with `if: !cancelled()`; ubuntu/alpine binary suites removed (static check kept); kube-linter lints the chart without the third-party subchart; tools cache keyed on `src/go.mod`
+- **delivery:** `main.go` findings fixed (error handling, `%w`, server timeouts, two documented `#nosec`); chart: zero-downtime settings on (RollingUpdate 0/1, PDB, anti-affinity), arm64 preferred affinity, resources, ServiceAccount, NetworkPolicy (Envoy-only ingress)
+- **guardrails:** `docs/CI.md#gating` and `.github/workflows/AGENTS.md` gating rules; `docs/CI.md#gosec-exceptions`; e2e suites unchanged to preserve behavior
+- **breaking changes:** app pods only accept traffic from the release's Envoy proxy (NetworkPolicy)
 - **Action needed:** none
 
 ### 2026-10-21 - [#1](https://github.com/YoyoBesser/echo-pong/pull/1) - Home assignment init: CI/CD skeleton, container, chart, e2e and security scans

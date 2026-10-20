@@ -59,7 +59,7 @@ jobs:
     needs: [metadata, scan-source, scan-repo, scan-image]
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TODO retag ${{ needs.metadata.outputs.short-sha }} as ${{ github.ref_name }}, sign image + attach SBOM"
+      - run: echo "TODO retag ${{ needs.metadata.outputs.short-sha }} as ${{ github.ref_name }}"
       - run: echo "TODO package + push Helm chart to GHCR (OCI)"
 
   binaries:

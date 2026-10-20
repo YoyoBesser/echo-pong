@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the app binary for one arch out of a (multi-arch) image; fail unless static. See docs/CI.md#binary-e2e
+# Copy the app binary for one arch out of a (multi-arch) image; fail unless static. See docs/CI.md#static-binary
 set -euo pipefail
 image="$1" arch="$2" out="$3"
 

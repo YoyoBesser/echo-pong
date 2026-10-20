@@ -34,15 +34,16 @@ func readSecretFromFile() error {
 		return fmt.Errorf("SECRET_FILE_PATH environment variable not set")
 	}
 
-	file, err := os.Open(secretPath)
+	// Operator-supplied config path, not request input. See docs/CI.md#gosec-exceptions
+	file, err := os.Open(secretPath) // #nosec G304 G703 -- path comes from SECRET_FILE_PATH, set by the operator
 	if err != nil {
-		return fmt.Errorf("failed to open secret file %s: %v", secretPath, err)
+		return fmt.Errorf("failed to open secret file %s: %w", secretPath, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // read-only file: a Close error can't lose data
 
 	secretBytes, err := io.ReadAll(file)
 	if err != nil {
-		return fmt.Errorf("failed to read secret file: %v", err)
+		return fmt.Errorf("failed to read secret file: %w", err)
 	}
 
 	secret = strings.TrimSpace(string(secretBytes))
@@ -50,7 +51,7 @@ func readSecretFromFile() error {
 		return fmt.Errorf("secret file is empty")
 	}
 
-	log.Printf("🔐 Secret loaded from %s", secretPath)
+	log.Printf("🔐 Secret loaded from %s", secretPath) // #nosec G706 -- operator-supplied path
 	return nil
 }
 
@@ -61,10 +62,12 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if authHeader == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Authorization header required",
-			})
-			log.Printf("🚫 Unauthorized access attempt from %s - missing auth header", r.RemoteAddr)
+			}); err != nil {
+				log.Printf("Error encoding auth error response: %v", err)
+			}
+			log.Printf("🚫 Unauthorized access attempt from %s - missing auth header", r.RemoteAddr) // #nosec G706 -- TCP peer address
 			return
 		}
 
@@ -77,10 +80,12 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if token != secret {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
+			if err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid authorization token",
-			})
-			log.Printf("🚫 Unauthorized access attempt from %s - invalid token", r.RemoteAddr)
+			}); err != nil {
+				log.Printf("Error encoding auth error response: %v", err)
+			}
+			log.Printf("🚫 Unauthorized access attempt from %s - invalid token", r.RemoteAddr) // #nosec G706 -- TCP peer address
 			return
 		}
 
@@ -142,7 +147,7 @@ func runCLI() {
 
 // printCLIHelp shows usage information
 func printCLIHelp() {
-	fmt.Println(`
+	fmt.Print(`
 🏓 Ping Pong Game - CLI & Server
 
 USAGE:
@@ -169,7 +174,7 @@ EXAMPLES:
 ENVIRONMENT VARIABLES:
   SECRET_FILE_PATH  Path to file containing the secret/password
   PORT             Port for HTTP server mode (default: 8080)
-`)
+` + "\n")
 }
 
 func main() {
@@ -205,7 +210,7 @@ func main() {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/", rootHandler)
 
-	log.Printf("🏓 Ping-Pong server starting on port %s", port)
+	log.Printf("🏓 Ping-Pong server starting on port %s", port) // #nosec G706 -- operator-supplied PORT
 	log.Printf("📍 Available endpoints:")
 	log.Printf("   GET /ping  - Returns pong (🔐 Auth required)")
 	log.Printf("   GET /pong  - Returns ping (🔐 Auth required)")
@@ -217,7 +222,15 @@ func main() {
 
 	log.Printf("Starting the server")
 
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	// Timeouts bound slow or idle clients (gosec G114). See docs/CI.md#gosec-exceptions
+	srv := &http.Server{
+		Addr:              ":" + port,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
 }
 
 func pingHandler(w http.ResponseWriter, r *http.Request) {
@@ -236,7 +249,7 @@ func pingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("🏓 PING received from %s → responding with PONG", r.RemoteAddr)
+	log.Printf("🏓 PING received from %s → responding with PONG", r.RemoteAddr) // #nosec G706 -- TCP peer address
 }
 
 func pongHandler(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +268,7 @@ func pongHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("🏓 PONG received from %s → responding with PING", r.RemoteAddr)
+	log.Printf("🏓 PONG received from %s → responding with PING", r.RemoteAddr) // #nosec G706 -- TCP peer address
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +383,10 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, html)
+	if _, err := fmt.Fprint(w, html); err != nil {
+		log.Printf("Error writing root page: %v", err)
+		return
+	}
 
-	log.Printf("📄 Root page served to %s", r.RemoteAddr)
+	log.Printf("📄 Root page served to %s", r.RemoteAddr) // #nosec G706 -- TCP peer address
 }

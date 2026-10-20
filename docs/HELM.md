@@ -1,11 +1,14 @@
 # Helm
 
-Chart: [`helm/echo-pong`](../helm/echo-pong). It's deliberately minimal for now: Deployment, Service, the Gateway API objects, and the Envoy Gateway subchart. Hardening to the [kube-linter policy](CI.md#kube-linter-policy) comes next.
+Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, the Gateway API objects, and the Envoy Gateway subchart. It passes the [kube-linter policy](CI.md#kube-linter-policy) and the [trivy gate](CI.md#trivy-config).
 
 | Value | Default | Purpose |
 |---|---|---|
 | `replicaCount` | `2` | Pods behind the Service |
-| `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | off | TODO, see [Zero downtime](#zero-downtime) |
+| `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | RollingUpdate 0/1, PDB `minAvailable: 1`, on | See [Zero downtime](#zero-downtime) |
+| `preferredArch` | `arm64` | See [Scheduling](#scheduling) |
+| `resources` | requests 50m / 32Mi, limit 64Mi | See [Resources](#resources) |
+| `networkPolicy.enabled` | `true` | See [Network policy](#network-policy) |
 | `image.repository` / `image.tag` | `ghcr.io/yoyobesser/echo-pong` / `appVersion` | App image |
 | `image.pullPolicy` | `IfNotPresent` | `Never` in [minikube e2e](CI.md#minikube-e2e) (preloaded image) |
 | `auth.existingSecret` | `echo-pong-auth` | See [Auth secret](#auth-secret) |
@@ -60,25 +63,37 @@ On a real cluster (EKS), the platform should label app namespaces the same way. 
 
 README L56: "Zero-downtime deployments server must be available and ready at all times."
 
-**Status: TODO.** The chart has the settings wired in but turned off. Today it already runs 2 replicas and gates traffic on startup and readiness probes ([Probes](#probes)). The plan to finish it:
-
-| Value | Target | Why |
+| Value | Default | Why |
 |---|---|---|
-| `rollout.strategy` | `{type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}` | A new pod must be Ready before an old one goes away, so serving capacity never drops below `replicaCount` during `helm upgrade` |
+| `rollout.strategy` | `RollingUpdate`, `maxUnavailable: 0`, `maxSurge: 1` | A new pod must be Ready before an old one goes away, so serving capacity never drops below `replicaCount` during `helm upgrade` |
 | `pdb.enabled`, `pdb.minAvailable` | `true`, `1` | Node drains and cluster upgrades can't evict the last serving pod |
-| `antiAffinity.enabled` | `true` | Preferred pod anti-affinity on `kubernetes.io/hostname`: replicas spread across nodes, so one node failure doesn't take both |
+| `antiAffinity.enabled` | `true` | Preferred pod anti-affinity on `kubernetes.io/hostname`: replicas spread across nodes when there are several, so one node failure doesn't take both |
 
-Also needed for a true zero-downtime rollout:
+Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), this keeps serving pods behind the Service throughout a rollout. Still open:
 
-- **Graceful SIGTERM shutdown in the app.** It needs to stop accepting connections and drain in-flight requests (app code, deferred to a follow-up PR).
-- **A `preStop` delay**, so endpoints are removed before the process stops.
-- **A rollout test that proves it** ([CI.md#rollout-verification](CI.md#rollout-verification)).
+- Graceful SIGTERM shutdown in the app (drain in-flight requests).
+- A `preStop` delay, so endpoints are removed before the process stops.
+- The rollout test that proves it ([CI.md#rollout-verification](CI.md#rollout-verification)).
 
-Rendering with all three values set passes kubeconform, and clears kube-linter's `no-rolling-update-strategy` and `no-anti-affinity`.
+## Scheduling
+
+README L57: "ARM64 architecture preferred." The pod has a **preferred** (not required) node affinity for `kubernetes.io/arch: arm64` (`preferredArch`). It lands on arm64 nodes when the cluster has them, and still schedules on amd64 otherwise. The image is multi-arch, so either works. Set `preferredArch: ""` to drop the preference.
+
+## Resources
+
+Requests `cpu: 50m`, `memory: 32Mi` and a `memory: 64Mi` limit (`resources`). The app is a small Go HTTP server. Requests let the scheduler place it, and an HPA can scale on them later. The memory limit caps a leak. There's no CPU limit, so the pod isn't throttled while it has spare node CPU. Tune from real usage.
+
+## Network policy
+
+README L58: "No direct internet access (use ingress/proxy)." A NetworkPolicy (`networkPolicy.enabled`) allows ingress to the app pods only from the Envoy proxy pods of this release's Gateway. It selects them by `gateway.envoyproxy.io/owning-gateway-name` and `-namespace` labels, on the `http` port. Everything else is denied, including other pods in the cluster. Egress isn't restricted.
+
+minikube's default CNI (kindnet) enforces it. A pod in another namespace can't reach `echo-pong.echo-pong.svc`, while the live-Gateway e2e still passes. On EKS, it needs a policy-enforcing CNI (VPC CNI with network policy enabled, or Calico).
+
+The pod also runs under a dedicated ServiceAccount with `automountServiceAccountToken: false`: the app never talks to the Kubernetes API.
 
 ## Auth secret
 
-The app reads its token from a file (`SECRET_FILE_PATH`). The chart mounts Secret `auth.existingSecret` (key `token`) read-only at `/var/run/secrets/echo-pong/` and points `SECRET_FILE_PATH` at it. The chart never creates the Secret, so no token lives in the repo or in values (README L52). Create it out-of-band, for example:
+The app reads its token from a file (`SECRET_FILE_PATH`). kube-linter's `env-var-secret` check flags that variable because of its name. It's annotated as an exception on the Deployment: the value is a path, and the app requires that name. The chart mounts Secret `auth.existingSecret` (key `token`) read-only at `/var/run/secrets/echo-pong/` and points `SECRET_FILE_PATH` at it. The chart never creates the Secret, so no token lives in the repo or in values (README L52). Create it out-of-band, for example:
 
 ```sh
 kubectl -n echo-pong create secret generic echo-pong-auth --from-literal=token="$(openssl rand -hex 16)"

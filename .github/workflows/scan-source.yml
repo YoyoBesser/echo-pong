@@ -18,7 +18,8 @@ jobs:
       - id: gosec
         name: gosec (SAST)
         working-directory: src
-        run: gosec -tags e2e ./...
+        # gosec via golangci-lint: standalone v2.29.0 can't load go1.27 packages. See docs/CI.md#sast-and-sca
+        run: golangci-lint run --enable-only gosec ./...
       - id: govulncheck
         name: govulncheck (SCA)
         working-directory: src

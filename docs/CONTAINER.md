@@ -20,7 +20,13 @@ The symlinks are created in a stage pinned to `$BUILDPLATFORM`, running the buil
 
 ## Cross-compile
 
-The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0`. Go cross-compiles natively, which is much faster than building under QEMU emulation. `CGO_ENABLED=0` yields a static binary, so it runs on `static` with no libc. The same binary is the release artifact, and CI checks it is static and runs it on ubuntu and alpine ([CI.md#binary-e2e](CI.md#binary-e2e)). `-trimpath -ldflags="-s -w"` strips local paths and debug symbols.
+The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0`. Go cross-compiles natively, which is much faster than building under QEMU emulation. `CGO_ENABLED=0` yields a static binary, so it runs on `static` with no libc. The same binary is the release artifact, and CI checks that it's static ([CI.md#static-binary](CI.md#static-binary)). `-trimpath -ldflags="-s -w"` strips local paths and debug symbols.
+
+## Go toolchain
+
+`src/go.mod` says `go 1.24`, the minimum language version (README L75), and `toolchain go1.27.3`, the compiler actually used. The build stage's `golang:1.27.3` tag matches the toolchain line. Go 1.24 is end of life: building with it shipped 22 HIGH stdlib CVEs (net/http, crypto/tls, x509, ...) that are only fixed in Go ≥ 1.26.9 / 1.27.2. With go1.27.3, trivy and govulncheck report none.
+
+The language version stays 1.24, so the code still builds with any Go ≥ 1.24. CI picks the toolchain from the same line (setup-go reads `toolchain`), so the linters, govulncheck and the image all see the same stdlib. Bump both lines together.
 
 ## Non-root
 

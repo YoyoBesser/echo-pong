@@ -46,6 +46,7 @@ jobs:
     env:
       CHART: helm/echo-pong
       RENDERED: rendered.yaml
+      RENDERED_APP: rendered-app.yaml
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: tools
@@ -61,7 +62,10 @@ jobs:
       # Test hooks excluded from render. See docs/CI.md#chart-lint
       - id: template
         name: helm template
-        run: helm template echo-pong "$CHART" --skip-tests > "$RENDERED"
+        # Second render without the third-party subchart, for kube-linter. See docs/CI.md#kube-linter-policy
+        run: |
+          helm template echo-pong "$CHART" --skip-tests > "$RENDERED"
+          helm template echo-pong "$CHART" --skip-tests --set envoy-gateway.enabled=false > "$RENDERED_APP"
       - id: kubeconform
         name: kubeconform
         env:
@@ -74,7 +78,7 @@ jobs:
             "$RENDERED"
       - id: kube-linter
         name: kube-linter
-        run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"
+        run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED_APP"
       # README-traced KSV IDs only; full report is informational. See docs/CI.md#trivy-config
       - id: trivy-config
         name: trivy config

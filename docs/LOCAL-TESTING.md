@@ -67,20 +67,6 @@ CHART_REF=oci://ghcr.io/yoyobesser/charts/echo-pong src/test/e2e/minikube-e2e.sh
 
 Profile `echo-pong-e2e` by default (`MINIKUBE_PROFILE` overrides it). Run the script directly, not through act: minikube under act would publish the API server port on the host daemon, which the act job container can't reach.
 
-## Binary e2e
-
-Same check as CI's [binary e2e](CI.md#binary-e2e): pull the binary out of the image, put it on a stock distro, run both suites.
-
-```sh
-docker buildx build --platform linux/arm64 --load -t echo-pong:ci src/
-id=$(docker create echo-pong:ci) && mkdir -p dist && docker cp "$id:/usr/local/bin/ping-pong-app" dist/ && docker rm "$id"
-file dist/ping-pong-app                                   # must say "statically linked"
-docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin dist/
-cd src && E2E_IMAGE=echo-pong:bin go test -tags e2e -count=1 -v ./test/e2e
-```
-
-Use `BASE=ubuntu:latest` for glibc, and `--platform linux/amd64` on both builds for x86 under emulation. `dist/` is gitignored.
-
 ## Common CI
 
 Same checks as CI's [Common CI](CI.md#common-ci), except the secret scan:
@@ -134,6 +120,6 @@ What it does:
 4. Runs `minikube tunnel`, which gives the Envoy LoadBalancer Service the external IP `127.0.0.1`. The Gateway then reports that address as `Programmed`.
 5. Prints the URL, the token and ready-to-paste curls, then keeps the tunnel in the foreground. Ctrl-C stops the tunnel; the cluster stays up for a quick rerun.
 
-With `--test`, it runs the same suites as CI's `e2e-tests` job for the local arch instead of holding the tunnel: CLI and API e2e against the image, the static-binary check, binary e2e on ubuntu and alpine, and API e2e through the live Gateway URL. It prints a pass/fail table and exits non-zero if any suite failed.
+With `--test`, it runs the same suites as CI's `e2e-tests` job for the local arch instead of holding the tunnel: CLI and API e2e against the image, the static-binary check, and API e2e through the live Gateway URL. It prints a pass/fail table and exits non-zero if any suite failed.
 
 `--status` checks the cluster, the release image, pod readiness, whether a tunnel is running, the Gateway address and `/health`, and then prints the same URL, token and curls as a normal run. It exits 0 only if the app answers through the tunnel. If the tunnel is down, it says so: rerun the script to reconnect.

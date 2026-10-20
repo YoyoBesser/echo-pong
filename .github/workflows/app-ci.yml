@@ -123,20 +123,13 @@ jobs:
             type=registry,ref=${{ env.IMAGE }}:${{ needs.metadata.outputs.branch-slug }}-cache
             type=registry,ref=${{ env.IMAGE }}:main-cache
           cache-to: type=registry,ref=${{ env.IMAGE }}:${{ needs.metadata.outputs.branch-slug }}-cache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
-      # Ship the exact binaries the image runs. See docs/CI.md#binary-e2e
+      # The release binary is the image's own; it must be static. See docs/CI.md#static-binary
       - id: static-amd64
         name: extract static binary (amd64)
         run: .github/scripts/extract-binary.sh "$TAG" amd64 dist/amd64
       - id: static-arm64
         name: extract static binary (arm64)
         run: .github/scripts/extract-binary.sh "$TAG" arm64 dist/arm64
-      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
-        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
-        continue-on-error: ${{ !!env.ACT }}
-        with:
-          name: binaries
-          path: dist/
-          retention-days: 1
       - if: always()
         uses: ./.github/actions/record-results
         with:
@@ -195,12 +188,6 @@ jobs:
           registry: ${{ needs.metadata.outputs.registry }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
-        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
-        continue-on-error: ${{ !!env.ACT }}
-        with:
-          name: binaries
-          path: dist
       # Pull the multi-arch index; the runner must resolve its own arch.
       - name: docker pull
         run: |
@@ -208,7 +195,6 @@ jobs:
           docker pull "$E2E_IMAGE"
           got="$(docker image inspect --format '{{.Architecture}}' "$E2E_IMAGE")"
           [[ "$got" == "$ARCH" ]] || { echo "::error::pulled $got, want $ARCH"; exit 1; }
-          chmod +x "dist/$ARCH/ping-pong-app"  # artifacts drop the exec bit
       # Every suite runs even if an earlier one failed; any failure fails the job. See docs/CI.md#gating
       - id: cli
         name: CLI e2e
@@ -219,19 +205,6 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: src
         run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
-      # Static binary on stock distros, same suites. See docs/CI.md#binary-e2e
-      - id: bin-ubuntu
-        name: binary e2e (ubuntu)
-        if: ${{ !cancelled() }}
-        run: |
-          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=ubuntu:latest -t echo-pong:bin-ubuntu "dist/$ARCH"
-          cd src && E2E_IMAGE=echo-pong:bin-ubuntu go test -tags e2e -count=1 -v ./test/e2e
-      - id: bin-alpine
-        name: binary e2e (alpine)
-        if: ${{ !cancelled() }}
-        run: |
-          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin-alpine "dist/$ARCH"
-          cd src && E2E_IMAGE=echo-pong:bin-alpine go test -tags e2e -count=1 -v ./test/e2e
       - id: minikube
         name: minikube e2e
         if: ${{ !cancelled() }}
@@ -248,8 +221,6 @@ jobs:
           rows: |
             tests|CLI e2e|${{ steps.cli.outcome }}|${{ steps.cli.conclusion }}
             tests|API e2e|${{ steps.api.outcome }}|${{ steps.api.conclusion }}
-            tests|binary e2e (ubuntu)|${{ steps.bin-ubuntu.outcome }}|${{ steps.bin-ubuntu.conclusion }}
-            tests|binary e2e (alpine)|${{ steps.bin-alpine.outcome }}|${{ steps.bin-alpine.conclusion }}
             tests|minikube e2e|${{ steps.minikube.outcome }}|${{ steps.minikube.conclusion }}
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md

@@ -1,13 +1,32 @@
 replicaCount: 2
 
-# TODO: zero-downtime rollout settings, wired but off. See docs/HELM.md#zero-downtime
+# Zero-downtime rollouts. See docs/HELM.md#zero-downtime
 rollout:
-  strategy: {}  # TODO: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
 pdb:
-  enabled: false  # TODO: true
+  enabled: true
   minAvailable: 1
 antiAffinity:
-  enabled: false  # TODO: true (preferred: spread replicas across nodes)
+  enabled: true
+
+# Prefer arm64 nodes, fall back to any (README L57). See docs/HELM.md#scheduling
+preferredArch: arm64
+
+# See docs/HELM.md#resources
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+
+# Only the Envoy proxy may reach the app (README L58). See docs/HELM.md#network-policy
+networkPolicy:
+  enabled: true
 
 image:
   repository: ghcr.io/yoyobesser/echo-pong

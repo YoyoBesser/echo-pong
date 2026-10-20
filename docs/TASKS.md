@@ -12,13 +12,13 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L33](../README.md?plain=1#L33): health check endpoint is available at `/health` ...**
   - [x] Startup, readiness and liveness probes all hit `/health`
 - **[L75](../README.md?plain=1#L75): Go 1.24**
-  - [x] `src/go.mod` pins `go 1.24`; CI's `setup-go` reads it ([CI.md#tool-pins](CI.md#tool-pins))
+  - [x] `src/go.mod` keeps `go 1.24` (language version) and builds with `toolchain go1.27.3` (patched stdlib); CI's `setup-go` reads it ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain))
 
 ## Mission
 
 - **[L42](../README.md?plain=1#L42): Take this application to production with support for both x86 and ARM64 ... binary release and a container release**
   - [x] One buildx build for amd64 + arm64, pushed as a multi-arch index ([CI.md#build](CI.md#build))
-  - [x] Static linux binaries (amd64, arm64) extracted from the CI image, e2e-tested on ubuntu + alpine ([CI.md#binary-e2e](CI.md#binary-e2e))
+  - [x] Static linux binaries (amd64, arm64) extracted from the CI image and verified static ([CI.md#static-binary](CI.md#static-binary))
   - [ ] Release: multi-arch image to GHCR + binaries on GitHub Releases (`release.yml` placeholders)
 
 ## Security
@@ -34,7 +34,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), gating)
 - **[L51](../README.md?plain=1#L51): No critical/high vulnerabilities should be released to production**
   - [x] Distroless static base keeps CVE surface near zero ([CONTAINER.md#base-image](CONTAINER.md#base-image))
-  - [x] CI fails on CRITICAL/HIGH, fixed or not (currently failing: 22 HIGH stdlib CVEs in Go 1.24 until the toolchain is bumped)
+  - [x] CI fails on CRITICAL/HIGH, fixed or not; 0 findings since the go1.27.3 toolchain bump ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain))
   - [x] Release gate: `release.yml` calls the same reusable scans; `publish` (the `vX.Y.Z` retag) needs both ([CI.md#reusable-scans](CI.md#reusable-scans))
   - [ ] Release `image` job (build + push under SHA) still a placeholder
 - **[L52](../README.md?plain=1#L52): No secrets in codebase**
@@ -54,17 +54,17 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L56](../README.md?plain=1#L56): Zero-downtime deployments server must be available and ready at all times**
   - [x] 2 replicas; startup/readiness/liveness probes on `/health`
   - [x] kube-linter: probes, replica floor 2, rolling update, anti-affinity, PDB checks ([CI.md#kube-linter-policy](CI.md#kube-linter-policy))
-  - [ ] `RollingUpdate` with `maxUnavailable: 0`, PDB, pod anti-affinity (TODO: wired in chart, off; [HELM.md#zero-downtime](HELM.md#zero-downtime))
+  - [x] `RollingUpdate` with `maxUnavailable: 0`, PDB, pod anti-affinity ([HELM.md#zero-downtime](HELM.md#zero-downtime))
   - [ ] App graceful shutdown on SIGTERM
   - [ ] Verify zero-downtime rollout (traffic during `helm upgrade`) (TODO step in `e2e-tests`; [CI.md#rollout-verification](CI.md#rollout-verification))
 - **[L57](../README.md?plain=1#L57): ARM64 architecture preferred**
   - [x] arm64 image built and e2e-tested on an arm64 runner
-  - [ ] `preferredDuringScheduling` node affinity for `kubernetes.io/arch: arm64`
+  - [x] `preferredDuringScheduling` node affinity for `kubernetes.io/arch: arm64` ([HELM.md#scheduling](HELM.md#scheduling))
 - **[L58](../README.md?plain=1#L58): No direct internet access (use ingress/proxy)**
   - [x] Envoy Gateway + Gateway API; Envoy and app Services `ClusterIP` ([HELM.md#envoy-gateway](HELM.md#envoy-gateway))
   - [x] minikube e2e reaches the app only through the Gateway ([CI.md#minikube-e2e](CI.md#minikube-e2e))
   - [x] kube-linter: `exposed-services`, `host-network`, `non-isolated-pod`
-  - [ ] NetworkPolicy: app accepts traffic only from Envoy
+  - [x] NetworkPolicy: app accepts traffic only from Envoy; enforced on minikube ([HELM.md#network-policy](HELM.md#network-policy))
 - **[L59](../README.md?plain=1#L59): Cluster can pull from registry**
   - [x] e2e preloads the image (`pullPolicy: Never`)
   - [ ] Public GHCR package, or `imagePullSecrets` if private
@@ -84,9 +84,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] kube-linter: `latest-tag`
   - [ ] Version injected into binary; chart version tracks app version
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
-  - [x] linux amd64/arm64 binary = the image's binary, verified static and run on ubuntu + alpine ([CI.md#binary-e2e](CI.md#binary-e2e))
+  - [x] linux amd64/arm64 binary = the image's binary, verified static ([CI.md#static-binary](CI.md#static-binary))
   - [ ] Publish linux binaries + cross-compiled darwin amd64/arm64 on GitHub Releases
-  - [ ] Image signing + SBOM
 
 ## Evaluation
 
@@ -95,7 +94,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L84](../README.md?plain=1#L84): Kubernetes Manifests and best practices**
   - [x] Helm chart, `helm lint --strict`, `kubeconform -strict` incl. CRDs ([CI.md#chart-lint](CI.md#chart-lint))
   - [x] README-traced kube-linter policy, gating ([CI.md#gating](CI.md#gating))
-  - [ ] Chart passes the policy: resources, HPA, ServiceAccount, `values-<env>.yaml`
+  - [x] Chart passes the policy: resources, ServiceAccount (no token automount), NetworkPolicy ([HELM.md#resources](HELM.md#resources))
+  - [ ] HPA, `values-<env>.yaml`
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
   - [x] `app-ci.yml` + `helm-ci.yml` + `common-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
   - [x] Tests + Security summary tables in every run ([CI.md#build-summary](CI.md#build-summary))
@@ -103,7 +103,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Every tool/action pin on latest, annotated with source + check date ([CI.md#tool-pins](CI.md#tool-pins))
   - [x] Tool, Go, minikube, trivy DB and schema downloads cached across runs ([CI.md#tool-cache](CI.md#tool-cache))
   - [x] Every check gating: lint, unit tests and scans fail fast; e2e runs all suites, then fails on any ([CI.md#gating](CI.md#gating))
-  - [ ] Fix the existing `main.go` findings (golangci-lint, `go vet`, gosec) and Go 1.24 stdlib CVEs
+  - [x] Fixed the existing `main.go` findings (golangci-lint, `go vet`, gosec) without changing behavior; e2e untouched ([CI.md#gosec-exceptions](CI.md#gosec-exceptions))
   - [ ] `release.yml` + `cd.yml` (placeholders), see L63–L65
 - **[L86](../README.md?plain=1#L86): Multi-Architecture builds**: see L62
 - **[L87](../README.md?plain=1#L87): Security Scanning and release prevention for critical and high vulnerabilities**: see L50–L51

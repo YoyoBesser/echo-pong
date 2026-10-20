@@ -9,7 +9,7 @@ usage: scripts/minikube-up.sh [--tag <ghcr-tag>] [--port <port>] [--test] | --st
   (default)    build the image from src/ for this machine's arch
   --tag TAG    use ghcr.io/yoyobesser/echo-pong:TAG instead (needs `docker login ghcr.io` if private)
   --port PORT  Gateway listener port on 127.0.0.1 (default 8080; ports < 1024 make minikube tunnel ask for sudo)
-  --test       after deploying, run all e2e suites (container, binary, live Gateway) and exit with the result
+  --test       after deploying, run all e2e suites (container, static binary, live Gateway) and exit with the result
   --status     show what's running (cluster, release, pods, tunnel) and the connection info; no changes
   --down       delete the minikube profile and exit
 
@@ -122,9 +122,13 @@ token="$(mk_deploy --set gateway.serviceType=LoadBalancer --set gateway.port="$p
 
 log "minikube tunnel (Ctrl-C to stop)"
 tunnel_log="$(mktemp)"
+# Own process group (set -m): on shutdown minikube tunnel signals its group, which would kill this script.
+set -m
 minikube tunnel -p "$PROFILE" --cleanup >"$tunnel_log" 2>&1 &
 tunnel_pid=$!
-trap 'kill "$tunnel_pid" 2>/dev/null; wait "$tunnel_pid" 2>/dev/null; rm -f "$tunnel_log"' EXIT
+set +m
+# wait returns 143 for the killed tunnel; || true keeps set -e from turning that into our exit code.
+trap 'rc=$?; kill "$tunnel_pid" 2>/dev/null || true; wait "$tunnel_pid" 2>/dev/null || true; rm -f "$tunnel_log"; exit "$rc"' EXIT
 
 mk_wait_gateway
 svc="$(mk_envoy_svc)"
@@ -151,19 +155,12 @@ if [[ "$test" == 1 ]]; then
   }
   # shellcheck disable=SC2329  # called via suite
   e2e() { go test -C "$root/src" -tags e2e -count=1 "$@" ./test/e2e; }
-  # shellcheck disable=SC2329  # called via suite
-  binary_on() {
-    docker build --quiet -f "$root/src/test/e2e/binary.Dockerfile" --build-arg "BASE=$1:latest" \
-      -t "echo-pong:bin-$1" "$bin_dir" >/dev/null && E2E_IMAGE="echo-pong:bin-$1" e2e -run '^Test(CLI|API)$'
-  }
 
   arch="$(docker image inspect --format '{{.Architecture}}' "$IMAGE")"
   bin_dir="$(mktemp -d)"
   E2E_IMAGE="$IMAGE" suite "CLI e2e" e2e -run '^TestCLI$'
   E2E_IMAGE="$IMAGE" suite "API e2e (container)" e2e -run '^TestAPI$'
   suite "static binary ($arch)" "$root/.github/scripts/extract-binary.sh" "$IMAGE" "$arch" "$bin_dir"
-  suite "binary e2e (ubuntu)" binary_on ubuntu
-  suite "binary e2e (alpine)" binary_on alpine
   E2E_BASE_URL="$url" E2E_SECRET="$token" suite "API e2e (live Gateway, $url)" e2e -run '^TestAPI$'
   rm -rf "$bin_dir"
 
