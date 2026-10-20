@@ -62,7 +62,7 @@ docker buildx build --platform linux/arm64 --load -t echo-pong:ci src/
 src/test/e2e/minikube-e2e.sh                          # minikube default k8s version
 K8S_VERSION=1.35.0 src/test/e2e/minikube-e2e.sh       # match CI's pin
 KEEP_CLUSTER=1 src/test/e2e/minikube-e2e.sh           # leave cluster up to poke at it
-CHART_REF=./helm/echo-pong src/test/e2e/minikube-e2e.sh  # test the in-repo chart instead of the latest release
+CHART_REF=oci://ghcr.io/yoyobesser/charts/echo-pong src/test/e2e/minikube-e2e.sh  # a released chart instead of in-repo
 ```
 
 Profile `echo-pong-e2e` by default (`MINIKUBE_PROFILE` overrides it). Run the script directly, not through act: minikube under act would publish the API server port on the host daemon, which the act job container can't reach.

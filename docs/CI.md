@@ -6,10 +6,10 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests), [minikube e2e](#minikube-e2e), secret scan, image scan |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), secret scan, image scan |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) |
 
-Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. A chart-only PR doesn't rebuild the image, and an app-only PR doesn't lint the chart.
+Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. App CI also runs on chart changes, because the minikube e2e deploys the in-repo chart. An app-only PR doesn't lint the chart.
 
 Gotcha: a path-filtered workflow that doesn't run leaves its checks pending. If either workflow becomes a required status check, add an always-running gate job, or the filtered PRs can never merge.
 
@@ -76,7 +76,13 @@ The target is set by env. `E2E_IMAGE` makes the tests start containers themselve
 | CLI | `TestCLI` | `--help`, ping/pong, wrong/missing password, missing/unknown command, missing `SECRET_FILE_PATH` |
 | API | `TestAPI` | `/health`, `/`, `/ping` and `/pong` with no, wrong, raw and `Bearer` tokens |
 
-The `e2e` job is a matrix of arch × suite, 4 legs with `fail-fast: false`, so one failure doesn't hide the others. Each leg loads its arch's image artifact and runs `go test -tags e2e -run '^Test<SUITE>$'` with `E2E_IMAGE=echo-pong:ci`.
+The `e2e` job runs once per arch (`fail-fast: false`). It downloads and loads the arch's image artifact once, then runs three suites as [`parallel`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel) steps, each with its own log:
+
+- `CLI e2e`: `go test -run '^TestCLI$'` against containers.
+- `API e2e`: `go test -run '^TestAPI$'` against a container.
+- `minikube e2e`: `TestAPI` through the Gateway of a live deploy (see [Minikube e2e](#minikube-e2e)).
+
+The job fails if any suite fails, but only after all three finish.
 
 The secret file goes in with `docker create` + `docker cp`, not a bind mount (see [LOCAL-TESTING.md#e2e](LOCAL-TESTING.md#e2e)). The API suite waits up to 45s for `/health`, because the server sleeps 10s before listening.
 
@@ -84,6 +90,7 @@ The secret file goes in with `docker create` + `docker cp`, not a bind mount (se
 
 `helm-ci.yml` checks [`helm/echo-pong`](../helm/echo-pong) in three layers:
 
+0. `helm dependency build` fetches the [Envoy Gateway subchart](HELM.md#envoy-gateway) pinned in `Chart.lock`. `helm/*/charts/` is gitignored.
 1. `helm lint --strict`: chart structure and templates. Warnings fail too.
 2. `helm template --skip-tests` renders the manifests. Test hooks are skipped because they are throwaway pods, not deployed workload, and would otherwise trip the policy below.
 3. The rendered output goes through [kubeconform](#kubeconform) (schema) and [kube-linter](#kube-linter-policy) (policy).
@@ -91,6 +98,8 @@ The secret file goes in with `docker create` + `docker cp`, not a bind mount (se
 ### Kubeconform
 
 `kubeconform -strict` validates every rendered object against the Kubernetes OpenAPI schema for the pinned `k8s-version` (see [Tool pins](#tool-pins)). `-strict` rejects unknown fields, so a typo like `readinesProbe` fails instead of being silently dropped. Bump `k8s-version` to match the target cluster's minor version.
+
+CRDs (Gateway API `Gateway`/`HTTPRoute`/`GatewayClass`, Envoy `EnvoyProxy`) aren't in the core schema. A second `-schema-location` points at the [Datree CRDs catalog](https://github.com/datreeio/CRDs-catalog), so they're validated instead of erroring with "could not find schema".
 
 ### Kube-linter policy
 
@@ -100,7 +109,7 @@ Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minim
 
 ## Soft-fail
 
-Temporary: golangci-lint (`app-ci.yml`), the four chart checks (`helm-ci.yml`) and the [minikube e2e](#minikube-e2e) deploy step run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e` run while the existing `main.go` has 11 lint issues and `helm/echo-pong/` is still empty.
+Temporary: golangci-lint (`app-ci.yml`) and the chart checks (`helm-ci.yml`) run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e` run while the existing `main.go` has 11 lint issues and the basic chart doesn't yet meet the kube-linter policy.
 
 Step-level (not job-level) keeps the job green so downstream jobs run, while the failed step still shows in the run log.
 
@@ -108,24 +117,18 @@ To make these checks blocking, remove every `continue-on-error` (`grep -rn conti
 
 ## Minikube e2e
 
-`minikube-e2e` runs in parallel with `e2e`, once per arch, on the same native runners and image artifact. It runs only the API suite, but against a live Kubernetes deploy instead of a bare container.
+The `minikube e2e` step runs in each arch's [e2e job](#e2e-tests), in parallel with the container suites. It runs `TestAPI` against a live Kubernetes deploy, with traffic entering through the [Gateway](HELM.md#envoy-gateway) the way it would in production.
 
 [`src/test/e2e/minikube-e2e.sh`](../src/test/e2e/minikube-e2e.sh) does the whole flow, locally and in CI:
 
 1. `minikube start` (docker driver, `k8s-version` from [Tool pins](#tool-pins)), then `minikube image load` the CI image.
-2. Resolve the chart. The default is the latest release at `oci://ghcr.io/<owner>/charts/echo-pong`. If no release exists yet, it warns and falls back to the in-repo `helm/echo-pong`.
-3. Create the namespace and a Secret holding a random token, then `helm upgrade --install --wait` with the CI image.
-4. `kubectl port-forward` the Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
-5. Delete the cluster on exit (unless `KEEP_CLUSTER=1`).
+2. `helm dependency build` the in-repo chart (`CHART_REF` overrides it, e.g. with a released OCI chart).
+3. Create the namespace and the [auth Secret](HELM.md#auth-secret) holding a random token. On a kept cluster, the existing token is reused, because the app reads its secret only at startup.
+4. `helm upgrade --install --wait` with the CI image and `image.pullPolicy=Never`.
+5. Wait for the Gateway to be `Programmed` and the Envoy proxy pods to be ready. The controller creates them after install, so `helm --wait` doesn't cover them.
+6. `kubectl port-forward` the Envoy proxy Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
+7. Delete the cluster on exit (unless `KEEP_CLUSTER=1`).
 
-The latest released chart plus the new image checks that a new app build still works with the chart already in production. Chart changes are covered by [chart lint](#chart-lint).
+## Actionlint
 
-The values contract the script relies on, which the chart must honour:
-
-| Value | Set to |
-|---|---|
-| `image.repository`, `image.tag` | The CI image (`echo-pong`, `ci`) |
-| `image.pullPolicy` | `Never` (the image is preloaded, not pulled) |
-| `auth.existingSecret` | Name of a Secret with key `token`, mounted as the file `SECRET_FILE_PATH` points to |
-
-The Service is named after the release (`echo-pong`), and its first port is the one forwarded. The script reaches it through `port-forward`, not the Ingress. Exposing it through the Ingress is a later step.
+[`.github/actionlint.yaml`](../.github/actionlint.yaml) ignores one error in `app-ci.yml`: actionlint 1.7.12 (latest as of 2026-10) predates `parallel:` steps and reports them as steps with no `run`/`uses`. Steps nested inside `parallel:` aren't type-checked until actionlint supports the keyword. Drop the ignore when it does. act doesn't run `parallel:` steps either, so run e2e locally per [LOCAL-TESTING.md#e2e](LOCAL-TESTING.md#e2e).

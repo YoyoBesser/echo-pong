@@ -46,6 +46,8 @@ jobs:
         uses: ./.github/actions/install-ci-tools
         with:
           suite: helm
+      - name: helm dependency build
+        run: helm dependency build "$CHART"
       # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail
       - name: helm lint
         continue-on-error: true
@@ -58,7 +60,12 @@ jobs:
         continue-on-error: true
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
-        run: kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" "$RENDERED"
+        # CRD schemas (Gateway API, Envoy) from the Datree catalog. See docs/CI.md#kubeconform
+        run: |
+          kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            "$RENDERED"
       - name: kube-linter
         continue-on-error: true
         run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"

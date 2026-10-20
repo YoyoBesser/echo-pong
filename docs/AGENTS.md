@@ -14,5 +14,6 @@ Code comments stay short and point here (`docs/CI.md#script-injection`), so the 
 
 ## Other docs
 
+- `CHANGELOG.md`: append-only, newest first, one entry per PR. Use the entry template in the file. **Intent** and **Result** are one sentence each, in caveman `/lite` style. Fill every structured field (`none` is fine). Never edit past entries, except to fix the PR link or date on merge.
 - `tasks.md`: super terse bullets, grouped by section. No implementation detail.
 - `plans/`: one file per plan, created only on request. Plans are working docs. Code comments link to reference docs, never to plans.

@@ -26,6 +26,7 @@
 - Helm chart in `helm/echo-pong/`: Deployment, Service, Ingress (namespace via `--create-namespace`)
 - Secret mounted as file (`SECRET_FILE_PATH`), not in repo
 - Readiness/liveness/startup probes (`/health`, 10s startup delay)
+- Chart passes kube-linter policy (app chart + Envoy Gateway subchart)
 - Rolling update with zero downtime (maxUnavailable 0, PDB, ≥2 replicas)
 - securityContext: non-root, no privilege escalation, drop caps, RO root FS
 - Resource requests/limits, HPA

@@ -44,3 +44,6 @@ secrets/
 
 # App binary
 ping-pong-app
+
+# Helm dependency archives (helm dependency build)
+helm/*/charts/

@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths: &paths
       - src/**
+      - helm/**
       - .github/workflows/app-ci.yml
       - .github/actions/**
   push:
@@ -86,42 +87,9 @@ jobs:
           path: image-${{ matrix.arch }}.tar.gz
           retention-days: 1
 
-  # Black-box tests per arch x suite. See docs/CI.md#e2e-tests
+  # All e2e suites for one arch in one job, image loaded once. See docs/CI.md#e2e-tests
   e2e:
-    name: e2e (${{ matrix.arch }}, ${{ matrix.suite }})
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-        suite: [CLI, API]
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    env:
-      ARCH: ${{ matrix.arch }}
-      SUITE: ${{ matrix.suite }}
-      E2E_IMAGE: echo-pong:ci
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/install-ci-tools
-        with:
-          suite: app
-      - uses: actions/download-artifact@v8
-        with:
-          name: image-${{ matrix.arch }}
-      - name: docker load
-        run: gunzip -c "image-$ARCH.tar.gz" | docker load
-      - name: go test
-        working-directory: src
-        run: go test -tags e2e -count=1 -v -run "^Test${SUITE}\$" ./test/e2e
-
-  # API e2e against a live minikube deploy, parallel to e2e. See docs/CI.md#minikube-e2e
-  minikube-e2e:
-    name: minikube-e2e (${{ matrix.arch }})
+    name: e2e (${{ matrix.arch }})
     needs: build
     strategy:
       fail-fast: false
@@ -146,12 +114,17 @@ jobs:
           name: image-${{ matrix.arch }}
       - name: docker load
         run: gunzip -c "image-$ARCH.tar.gz" | docker load
-      # TODO: make blocking once the chart exists. See docs/CI.md#soft-fail
-      - name: deploy + API e2e
-        continue-on-error: true
-        env:
-          K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
-        run: src/test/e2e/minikube-e2e.sh
+      - parallel:
+          - name: CLI e2e
+            working-directory: src
+            run: go test -tags e2e -count=1 -v -run '^TestCLI$' ./test/e2e
+          - name: API e2e
+            working-directory: src
+            run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
+          - name: minikube e2e
+            env:
+              K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+            run: src/test/e2e/minikube-e2e.sh
 
   scan:
     needs: [metadata, build]

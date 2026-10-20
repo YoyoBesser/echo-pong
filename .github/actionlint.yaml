@@ -1,0 +1,5 @@
+# actionlint 1.7.12 predates `parallel:` steps. See docs/CI.md#actionlint
+paths:
+  .github/workflows/app-ci.yml:
+    ignore:
+      - 'step must run script with "run" section or run action with "uses" section'

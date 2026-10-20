@@ -17,10 +17,15 @@ Applies to all code and config: Go, YAML (workflows, actions, Helm), Dockerfile,
 
 Doc-writing rules: [docs/AGENTS.md](docs/AGENTS.md).
 
+## Changelog
+
+Every PR that changes app behaviour, tooling, workflows, guardrails or delivery config (image, chart) appends an entry at the top of [docs/CHANGELOG.md](docs/CHANGELOG.md), in the same PR. Follow the format and the **Action needed** values defined there.
+
 ## Layout
 
 - `src/`: Go service (`Dockerfile`, e2e tests in `src/test/e2e/`).
-- `helm/echo-pong/`: Helm chart.
+- `helm/echo-pong/`: Helm chart (Envoy Gateway subchart, Gateway API routing).
 - `docs/tasks.md`: terse high-level task list.
 - `docs/plans/`: in-depth implementation plans. Written only when the user asks for a specific one.
 - `docs/*.md`: reference docs, the targets of code-comment links.
+- `docs/CHANGELOG.md`: one entry per PR, newest first.
