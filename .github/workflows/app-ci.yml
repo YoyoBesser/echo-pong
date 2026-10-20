@@ -1,0 +1,124 @@
+name: App CI
+
+# Path-filtered. See docs/CI.md#workflow-split
+on:
+  pull_request:
+    branches: [main]
+    paths: &paths
+      - src/**
+      - .github/workflows/app-ci.yml
+      - .github/actions/**
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+
+  lint:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: app
+      - name: golangci-lint
+        working-directory: src
+        run: golangci-lint run
+
+  test:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO go test"
+
+  secret-scan:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO secret scanning"
+
+  # Native runner per arch, no QEMU. See docs/CI.md#build-matrix
+  build:
+    needs: [metadata, lint, test]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: docker build
+        run: |
+          set -euo pipefail
+          docker build --platform "linux/$ARCH" -t echo-pong:ci src/
+          docker save echo-pong:ci | gzip > "image-$ARCH.tar.gz"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-${{ matrix.arch }}
+          path: image-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+  # Black-box tests per arch x suite. See docs/CI.md#e2e-tests
+  e2e:
+    name: e2e (${{ matrix.arch }}, ${{ matrix.suite }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        suite: [CLI, API]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+      SUITE: ${{ matrix.suite }}
+      E2E_IMAGE: echo-pong:ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: app
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ matrix.arch }}
+      - name: docker load
+        run: gunzip -c "image-$ARCH.tar.gz" | docker load
+      - name: go test
+        working-directory: src
+        run: go test -tags e2e -count=1 -v -run "^Test${SUITE}\$" ./test/e2e
+
+  scan:
+    needs: [metadata, build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO vulnerability scan; fail on critical/high"

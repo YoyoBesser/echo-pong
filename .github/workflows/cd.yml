@@ -1,0 +1,47 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version to deploy (e.g. v1.2.3)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      reason: ${{ steps.meta.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+
+  deploy:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: echo "TODO helm upgrade --install --atomic with image tag $VERSION"
+
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO verify rollout + /health, /ping"
+
+  cleanup:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO prune old/untagged images per retention policy"

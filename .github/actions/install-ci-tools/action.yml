@@ -1,0 +1,62 @@
+name: Install CI tools
+description: Install the pinned toolchain for one CI suite. All CI tool versions live here.
+
+inputs:
+  suite:
+    description: "Which toolchain to install: app (Go, golangci-lint) or helm (helm, kubeconform, kube-linter)."
+    required: true
+
+outputs:
+  k8s-version:
+    description: Kubernetes version kubeconform validates against (helm suite).
+    value: ${{ steps.pins.outputs.k8s-version }}
+
+runs:
+  using: composite
+  steps:
+    # Single source of truth for versions. See docs/CI.md#tool-pins
+    - id: pins
+      shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+      run: |
+        case "$SUITE" in app|helm) ;; *) echo "::error::unknown suite '$SUITE' (want app|helm)"; exit 1 ;; esac
+        cat >> "$GITHUB_OUTPUT" <<'EOF'
+        golangci-lint=v2.15.0
+        helm=v4.3.1
+        kubeconform=v0.8.0
+        kube-linter=v0.8.3
+        k8s-version=1.35.0
+        EOF
+
+    # Go version comes from src/go.mod, not a pin here.
+    - if: inputs.suite == 'app'
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: src/go.mod
+        cache: false
+    - if: inputs.suite == 'app'
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: ${{ steps.pins.outputs.golangci-lint }}
+        install-only: true
+
+    - if: inputs.suite == 'helm'
+      uses: azure/setup-helm@v5
+      with:
+        version: ${{ steps.pins.outputs.helm }}
+    - if: inputs.suite == 'helm'
+      shell: bash
+      env:
+        KUBECONFORM_VERSION: ${{ steps.pins.outputs.kubeconform }}
+        KUBE_LINTER_VERSION: ${{ steps.pins.outputs.kube-linter }}
+      run: |
+        set -euo pipefail
+        arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+        bin="$RUNNER_TEMP/ci-tools" && mkdir -p "$bin" && echo "$bin" >> "$GITHUB_PATH"
+        curl -fsSL "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-$arch.tar.gz" \
+          | tar -xz -C "$bin" kubeconform
+        suffix="" && [[ "$arch" == "arm64" ]] && suffix="_arm64"
+        curl -fsSL "https://github.com/stackrox/kube-linter/releases/download/$KUBE_LINTER_VERSION/kube-linter-linux$suffix" \
+          -o "$bin/kube-linter"
+        chmod +x "$bin/kube-linter"

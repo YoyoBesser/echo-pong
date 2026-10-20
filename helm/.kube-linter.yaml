@@ -1,0 +1,56 @@
+# Explicit allowlist: every check traces to a README.md line. See docs/CI.md#kube-linter-policy
+checks:
+  doNotAutoAddDefaults: true
+  include:
+    - run-as-non-root                 # README L49: No containers running as root
+    - privileged-container            # README L49: No containers running as root
+    - privilege-escalation-container  # README L49: No containers running as root
+    - env-var-secret                  # README L52: No secrets in codebase
+    - read-secret-from-env-var        # README L52: No secrets in codebase
+    - no-read-only-root-fs            # README L53: Proper filesystem isolation
+    - writable-host-mount             # README L53: Proper filesystem isolation
+    - sensitive-host-mounts           # README L53: Proper filesystem isolation
+    - docker-sock                     # README L53: Proper filesystem isolation
+    - unsafe-proc-mount               # README L53: Proper filesystem isolation
+    - host-pid                        # README L53: Proper filesystem isolation
+    - host-ipc                        # README L53: Proper filesystem isolation
+    - drop-net-raw-capability         # README L83: Container Security
+    - no-readiness-probe              # README L56: Zero-downtime deployments server must be available and ready at all times
+    - readiness-port                  # README L56: Zero-downtime deployments server must be available and ready at all times
+    - no-liveness-probe               # README L56: Zero-downtime deployments server must be available and ready at all times
+    - liveness-port                   # README L56: Zero-downtime deployments server must be available and ready at all times
+    - startup-port                    # README L56: Zero-downtime deployments server must be available and ready at all times
+    - no-rolling-update-strategy      # README L56: Zero-downtime deployments server must be available and ready at all times
+    - minimum-two-replicas            # README L56: Zero-downtime deployments server must be available and ready at all times
+    - hpa-minimum-two-replicas        # README L56: Zero-downtime deployments server must be available and ready at all times
+    - no-anti-affinity                # README L56: Zero-downtime deployments server must be available and ready at all times
+    - pdb-max-unavailable             # README L56: Zero-downtime deployments server must be available and ready at all times
+    - pdb-min-available               # README L56: Zero-downtime deployments server must be available and ready at all times
+    - no-node-affinity                # README L57: ARM64 architecture preferred
+    - exposed-services                # README L58: No direct internet access (use ingress/proxy)
+    - host-network                    # README L58: No direct internet access (use ingress/proxy)
+    - non-isolated-pod                # README L58: No direct internet access (use ingress/proxy)
+    - dangling-networkpolicy          # README L58: No direct internet access (use ingress/proxy)
+    - dangling-ingress                # README L58: No direct internet access (use ingress/proxy)
+    - latest-tag                      # README L64: Versioned releases with tags
+    - unset-cpu-requirements          # README L84: Kubernetes Manifests and best practices
+    - unset-memory-requirements       # README L84: Kubernetes Manifests and best practices
+    - default-service-account         # README L84: Kubernetes Manifests and best practices
+    - non-existent-service-account    # README L84: Kubernetes Manifests and best practices
+    - dangling-service                # README L84: Kubernetes Manifests and best practices
+    - mismatching-selector            # README L84: Kubernetes Manifests and best practices
+    - invalid-target-ports            # README L84: Kubernetes Manifests and best practices
+    - dangling-horizontalpodautoscaler  # README L84: Kubernetes Manifests and best practices
+    - duplicate-env-var               # README L84: Kubernetes Manifests and best practices
+
+customChecks:
+  - name: minimum-two-replicas        # README L56: Zero-downtime deployments server must be available and ready at all times
+    template: minimum-replicas
+    params:
+      minReplicas: 2
+    remediation: Set replicas >= 2 so a rollout or node loss never drops to zero pods.
+  - name: hpa-minimum-two-replicas    # README L56: Zero-downtime deployments server must be available and ready at all times
+    template: hpa-minimum-replicas
+    params:
+      minReplicas: 2
+    remediation: Set HPA minReplicas >= 2 so scale-down never drops to one pod.

@@ -1,0 +1,17 @@
+version: "2"
+
+run:
+  build-tags: [e2e]
+
+# Linter choice: docs/CI.md#go-lint
+linters:
+  default: standard
+  enable:
+    - gosec
+    - misspell
+    - bodyclose
+    - errorlint
+
+formatters:
+  enable:
+    - gofmt

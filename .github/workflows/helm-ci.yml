@@ -1,0 +1,59 @@
+name: Helm CI
+
+# Path-filtered. See docs/CI.md#workflow-split
+on:
+  pull_request:
+    branches: [main]
+    paths: &paths
+      - helm/**
+      - .github/workflows/helm-ci.yml
+      - .github/actions/**
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+
+  lint:
+    needs: metadata
+    runs-on: ubuntu-latest
+    env:
+      CHART: helm/echo-pong
+      RENDERED: rendered.yaml
+    steps:
+      - uses: actions/checkout@v7
+      - id: tools
+        uses: ./.github/actions/install-ci-tools
+        with:
+          suite: helm
+      - name: helm lint
+        run: helm lint --strict "$CHART"
+      # Test hooks excluded from render. See docs/CI.md#chart-lint
+      - name: helm template
+        run: helm template echo-pong "$CHART" --skip-tests > "$RENDERED"
+      - name: kubeconform
+        env:
+          K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+        run: kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" "$RENDERED"
+      - name: kube-linter
+        run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"

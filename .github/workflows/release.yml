@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+
+  image:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO build + push multi-arch image to GHCR (${{ github.ref_name }}, ${{ needs.metadata.outputs.short-sha }})"
+      - run: echo "TODO sign image + attach SBOM"
+      - run: echo "TODO package + push Helm chart to GHCR (OCI)"
+
+  binaries:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO cross-compile linux/darwin x amd64/arm64"
+
+  github-release:
+    needs: [metadata, image, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO publish GitHub Release ${{ github.ref_name }} with binaries"
