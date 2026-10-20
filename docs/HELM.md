@@ -5,6 +5,7 @@ Chart: [`helm/echo-pong`](../helm/echo-pong). It's deliberately minimal for now:
 | Value | Default | Purpose |
 |---|---|---|
 | `replicaCount` | `2` | Pods behind the Service |
+| `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | off | TODO, see [Zero downtime](#zero-downtime) |
 | `image.repository` / `image.tag` | `ghcr.io/yoyobesser/echo-pong` / `appVersion` | App image |
 | `image.pullPolicy` | `IfNotPresent` | `Never` in [minikube e2e](CI.md#minikube-e2e) (preloaded image) |
 | `auth.existingSecret` | `echo-pong-auth` | See [Auth secret](#auth-secret) |
@@ -43,6 +44,26 @@ The pod and container run locked down by default (`podSecurityContext`, `securit
 | `seccompProfile.type` | `RuntimeDefault` | L83 |
 
 A regression is caught by the blocking `trivy config` gate in helm-ci ([CI.md#trivy-config](CI.md#trivy-config)), which fails if any of the first four rows' fields go missing or unsafe, whether from a template edit, a values override or a deleted block. kube-linter alone can't do this, because it passes a container that sets nothing. The minikube e2e runs the app with these settings.
+
+## Zero downtime
+
+README L56: "Zero-downtime deployments server must be available and ready at all times."
+
+**Status: TODO.** The chart has the settings wired in but turned off. Today it already runs 2 replicas and gates traffic on startup and readiness probes ([Probes](#probes)). The plan to finish it:
+
+| Value | Target | Why |
+|---|---|---|
+| `rollout.strategy` | `{type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}` | A new pod must be Ready before an old one goes away, so serving capacity never drops below `replicaCount` during `helm upgrade` |
+| `pdb.enabled`, `pdb.minAvailable` | `true`, `1` | Node drains and cluster upgrades can't evict the last serving pod |
+| `antiAffinity.enabled` | `true` | Preferred pod anti-affinity on `kubernetes.io/hostname`: replicas spread across nodes, so one node failure doesn't take both |
+
+Also needed for a true zero-downtime rollout:
+
+- **Graceful SIGTERM shutdown in the app.** It needs to stop accepting connections and drain in-flight requests (app code, deferred to a follow-up PR).
+- **A `preStop` delay**, so endpoints are removed before the process stops.
+- **A rollout test that proves it** ([CI.md#rollout-verification](CI.md#rollout-verification)).
+
+Rendering with all three values set passes kubeconform, and clears kube-linter's `no-rolling-update-strategy` and `no-anti-affinity`.
 
 ## Auth secret
 

@@ -1,5 +1,14 @@
 replicaCount: 2
 
+# TODO: zero-downtime rollout settings, wired but off. See docs/HELM.md#zero-downtime
+rollout:
+  strategy: {}  # TODO: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+pdb:
+  enabled: false  # TODO: true
+  minAvailable: 1
+antiAffinity:
+  enabled: false  # TODO: true (preferred: spread replicas across nodes)
+
 image:
   repository: ghcr.io/yoyobesser/echo-pong
   tag: ""

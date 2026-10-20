@@ -53,7 +53,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L56](../README.md?plain=1#L56): Zero-downtime deployments server must be available and ready at all times**
   - [x] 2 replicas; startup/readiness/liveness probes on `/health`
   - [x] kube-linter: probes, replica floor 2, rolling update, anti-affinity, PDB checks ([CI.md#kube-linter-policy](CI.md#kube-linter-policy))
-  - [ ] `RollingUpdate` with `maxUnavailable: 0`, PDB, pod anti-affinity
+  - [ ] `RollingUpdate` with `maxUnavailable: 0`, PDB, pod anti-affinity (TODO: wired in chart, off; [HELM.md#zero-downtime](HELM.md#zero-downtime))
   - [ ] App graceful shutdown on SIGTERM
   - [ ] Verify zero-downtime rollout (traffic during `helm upgrade`)
 - **[L57](../README.md?plain=1#L57): ARM64 architecture preferred**

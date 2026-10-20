@@ -5,6 +5,9 @@ metadata:
   labels: {{- include "echo-pong.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- with .Values.rollout.strategy }}
+  strategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels: {{- include "echo-pong.selectorLabels" . | nindent 6 }}
   template:
@@ -12,6 +15,16 @@ spec:
       labels: {{- include "echo-pong.selectorLabels" . | nindent 8 }}
     spec:
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.antiAffinity.enabled }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {{- include "echo-pong.selectorLabels" . | nindent 20 }}
+      {{- end }}
       containers:
         - name: echo-pong
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"

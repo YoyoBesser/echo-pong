@@ -300,3 +300,11 @@ To run locally, see [LOCAL-TESTING.md#common-ci](LOCAL-TESTING.md#common-ci).
 - **Markdown**: every `[text](path#anchor)` link is resolved relative to the linking file, the way GitHub renders it, and the anchor must match a heading. `README.md?plain=1#L49` line links must point at a line that exists. External URLs are skipped.
 
 Links inside `inline code` are text, not links, so they're skipped. So are `test_*.py` files, which hold deliberately broken links as fixtures. Anchors are computed like GitHub's: lowercase, punctuation other than `-`/`_` dropped, spaces become `-`, `-1`, `-2`, ... for duplicate headings, and headings inside fenced code are ignored. Renaming a heading without updating its links fails CI. Run it locally with `uv run --project .github python .github/scripts/check_doc_links.py`.
+
+## Rollout verification
+
+README L56. **Status: TODO**, as a placeholder step after `minikube e2e` in each arch's `e2e-tests` job.
+
+Intended design: on the minikube cluster the e2e already deploys, start a loop that polls `/health` and `/ping` (with the token) through the Gateway, every 100 ms. Meanwhile, `helm upgrade` with a changed pod template (e.g. a `rollout-id` annotation) so every pod is replaced. Fail on any non-2xx response or connection error, and record the request count and failures in the summary.
+
+It passes only once [HELM.md#zero-downtime](HELM.md#zero-downtime) is done: rolling-update settings, PDB, and graceful shutdown in the app.
