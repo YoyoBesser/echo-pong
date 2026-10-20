@@ -1,0 +1,40 @@
+name: Record results
+description: Record check outcomes for the run's Tests / Security summary tables. See .github/workflows/AGENTS.md.
+
+inputs:
+  rows:
+    description: "One check per line: `kind|check|outcome|conclusion`, kind = tests or security, from steps.<id>.outcome / .conclusion."
+    required: true
+  scope:
+    description: Column the results land in (arch for matrix legs, `all` otherwise).
+    default: all
+
+runs:
+  using: composite
+  steps:
+    - id: write
+      shell: bash
+      env:
+        ROWS: ${{ inputs.rows }}
+        SCOPE: ${{ inputs.scope }}
+        JOB: ${{ github.job }}
+      run: |
+        set -euo pipefail
+        dir="$RUNNER_TEMP/ci-results" && mkdir -p "$dir"
+        file="$dir/$JOB-$SCOPE.jsonl" && : > "$file"
+        while IFS='|' read -r kind check outcome conclusion; do
+          [[ -z "$kind" ]] && continue
+          case "$kind" in tests|security) ;; *) echo "::error::bad kind '$kind' (want tests|security)"; exit 1 ;; esac
+          jq -cn --arg kind "$kind" --arg check "$check" --arg scope "$SCOPE" --arg job "$JOB" \
+            --arg outcome "$outcome" --arg conclusion "$conclusion" \
+            '{kind: $kind, check: $check, scope: $scope, job: $job, outcome: $outcome, conclusion: $conclusion}' >> "$file"
+        done <<< "$ROWS"
+        echo "file=$file" >> "$GITHUB_OUTPUT"
+        echo "name=ci-results-$JOB-$SCOPE" >> "$GITHUB_OUTPUT"
+    # act's artifact server can't take v7 uploads. See docs/LOCAL-TESTING.md#gotchas
+    - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
+      continue-on-error: true
+      with:
+        name: ${{ steps.write.outputs.name }}
+        path: ${{ steps.write.outputs.file }}
+        retention-days: 1

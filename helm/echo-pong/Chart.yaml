@@ -1,0 +1,13 @@
+apiVersion: v2
+name: echo-pong
+description: Ping-pong API, exposed through Envoy Gateway (Gateway API).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  # Brings the Gateway API CRDs + controller. See docs/HELM.md#envoy-gateway
+  - name: gateway-helm
+    alias: envoy-gateway
+    version: 1.9.2  # latest: https://github.com/envoyproxy/gateway/releases (checked 2026-10-21)
+    repository: oci://docker.io/envoyproxy
+    condition: envoy-gateway.enabled

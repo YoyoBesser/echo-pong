@@ -1,0 +1,47 @@
+replicaCount: 2
+
+# TODO: zero-downtime rollout settings, wired but off. See docs/HELM.md#zero-downtime
+rollout:
+  strategy: {}  # TODO: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+pdb:
+  enabled: false  # TODO: true
+  minAvailable: 1
+antiAffinity:
+  enabled: false  # TODO: true (preferred: spread replicas across nodes)
+
+image:
+  repository: ghcr.io/yoyobesser/echo-pong
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Existing Secret with key `token`, mounted as the app's secret file. See docs/HELM.md#auth-secret
+auth:
+  existingSecret: echo-pong-auth
+
+# Non-root, no escalation, no caps, read-only root FS. See docs/HELM.md#security-context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+service:
+  port: 80
+
+gateway:
+  className: echo-pong
+  serviceType: ClusterIP
+  port: 80
+  hostnames: []
+
+envoy-gateway:
+  enabled: true

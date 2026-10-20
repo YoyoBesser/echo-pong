@@ -1,0 +1,40 @@
+name: Scan repo
+
+# Reusable: repo-wide secret scanning, shared by common CI and release. See docs/CI.md#repo-scan
+on:
+  workflow_call:
+    inputs:
+      blocking:
+        description: Fail the job on findings. false = report only.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan-repo:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, so gitleaks also sees secrets that were committed and later removed.
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: repo
+      - id: trivy-fs
+        name: trivy fs (secrets, working tree)
+        continue-on-error: ${{ !inputs.blocking }}
+        run: trivy fs --no-progress --scanners secret --exit-code 1 .
+      - id: gitleaks
+        name: gitleaks (secrets, git history)
+        if: ${{ !cancelled() }}
+        continue-on-error: ${{ !inputs.blocking }}
+        run: gitleaks git --no-banner --redact --exit-code 1 .
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            security|trivy fs (secrets)|${{ steps.trivy-fs.outcome }}|${{ steps.trivy-fs.conclusion }}
+            security|gitleaks (git history)|${{ steps.gitleaks.outcome }}|${{ steps.gitleaks.conclusion }}

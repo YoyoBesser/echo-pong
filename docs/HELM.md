@@ -1,0 +1,91 @@
+# Helm
+
+Chart: [`helm/echo-pong`](../helm/echo-pong). It's deliberately minimal for now: Deployment, Service, the Gateway API objects, and the Envoy Gateway subchart. Hardening to the [kube-linter policy](CI.md#kube-linter-policy) comes next.
+
+| Value | Default | Purpose |
+|---|---|---|
+| `replicaCount` | `2` | Pods behind the Service |
+| `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | off | TODO, see [Zero downtime](#zero-downtime) |
+| `image.repository` / `image.tag` | `ghcr.io/yoyobesser/echo-pong` / `appVersion` | App image |
+| `image.pullPolicy` | `IfNotPresent` | `Never` in [minikube e2e](CI.md#minikube-e2e) (preloaded image) |
+| `auth.existingSecret` | `echo-pong-auth` | See [Auth secret](#auth-secret) |
+| `podSecurityContext` / `securityContext` | see [Security context](#security-context) | Pod / container security context |
+| `service.port` | `80` | Service port (container listens on `8080`) |
+| `gateway.className` | `echo-pong` | GatewayClass created by the chart |
+| `gateway.serviceType` | `ClusterIP` | Envoy proxy Service type, see [Envoy Gateway](#envoy-gateway) |
+| `gateway.port` / `gateway.hostnames` | `80` / `[]` | Listener port; HTTPRoute hostnames (empty matches all) |
+| `envoy-gateway.enabled` | `true` | Install the Envoy Gateway subchart |
+
+## Envoy Gateway
+
+Ingress uses the [Gateway API](https://gateway-api.sigs.k8s.io/), with [Envoy Gateway](https://gateway.envoyproxy.io/) as the implementation. The `gateway-helm` chart (v1.9.2, `oci://docker.io/envoyproxy`) is a dependency aliased `envoy-gateway`. It brings the Gateway API and Envoy CRDs (from its `crds/`, which Helm installs first) and the controller. The alias must be lowercase, because it ends up in resource names (`echo-pong-envoy-gateway-certgen`).
+
+The chart then defines:
+
+- `GatewayClass` `echo-pong`, owned by `gateway.envoyproxy.io/gatewayclass-controller`.
+- `EnvoyProxy`, referenced from the Gateway's `infrastructure.parametersRef`. It sets the proxy Service type.
+- `Gateway`, with one HTTP listener on `gateway.port`.
+- `HTTPRoute`, sending everything to the app Service.
+
+`gateway.serviceType` defaults to `ClusterIP`. Nothing is exposed directly (README L58), and the Gateway reports `Programmed` on clusters without a load balancer, such as minikube. With `LoadBalancer`, minikube leaves the address `<pending>` and the Gateway never becomes `Programmed`. On a cloud cluster (EKS), set `LoadBalancer` to get an NLB in front of Envoy.
+
+Envoy Gateway's controller is cluster-scoped (GatewayClass, CRDs). Installing it per app release is fine for a single-app cluster and for e2e. A shared cluster would install it once, separately, with `envoy-gateway.enabled=false` here.
+
+## Security context
+
+The pod and container run locked down by default (`podSecurityContext`, `securityContext` in `values.yaml`):
+
+| Setting | Value | README |
+|---|---|---|
+| `runAsNonRoot`, `runAsUser`/`runAsGroup`/`fsGroup` | `true`, `65532` (the image's numeric `USER`, see [CONTAINER.md#non-root](CONTAINER.md#non-root)) | L49 |
+| `allowPrivilegeEscalation`, `privileged` | `false` | L49 |
+| `readOnlyRootFilesystem` | `true`. The app writes nothing, and its secret is a read-only volume | L53 |
+| `capabilities.drop` | `[ALL]` | L83 |
+| `seccompProfile.type` | `RuntimeDefault` | L83 |
+
+Pinned in two layers, so removing or weakening any of it fails CI:
+
+1. **Static, at PR time:** the blocking `trivy config` gate in helm-ci ([CI.md#trivy-config](CI.md#trivy-config)) checks every row above on the rendered chart, whether it's broken by a template edit, a values override or a deleted block. kube-linter alone can't do this, because it passes a container that sets nothing.
+2. **Runtime, at deploy:** [Pod Security Admission](#pod-security-admission) `restricted` on the e2e namespace. The API server itself refuses pods that drop the settings.
+
+## Pod Security Admission
+
+The [minikube e2e](CI.md#minikube-e2e) labels its namespace `pod-security.kubernetes.io/enforce=restricted` (with `enforce-version=latest`) before installing. Kubernetes' built-in admission then rejects any pod that isn't non-root, without privilege escalation, with capabilities dropped to `ALL` and seccomp `RuntimeDefault`. If the chart's [security context](#security-context) regresses, the pods never start and the e2e fails. A bare pod with no securityContext is refused with `violates PodSecurity "restricted:latest"`.
+
+Everything in the release runs under `restricted`: the app and the Envoy Gateway controller, certgen job and proxy. PSA doesn't check `readOnlyRootFilesystem`; the trivy gate covers that.
+
+On a real cluster (EKS), the platform should label app namespaces the same way. The chart doesn't create its namespace, so it can't set the label itself.
+
+## Zero downtime
+
+README L56: "Zero-downtime deployments server must be available and ready at all times."
+
+**Status: TODO.** The chart has the settings wired in but turned off. Today it already runs 2 replicas and gates traffic on startup and readiness probes ([Probes](#probes)). The plan to finish it:
+
+| Value | Target | Why |
+|---|---|---|
+| `rollout.strategy` | `{type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}` | A new pod must be Ready before an old one goes away, so serving capacity never drops below `replicaCount` during `helm upgrade` |
+| `pdb.enabled`, `pdb.minAvailable` | `true`, `1` | Node drains and cluster upgrades can't evict the last serving pod |
+| `antiAffinity.enabled` | `true` | Preferred pod anti-affinity on `kubernetes.io/hostname`: replicas spread across nodes, so one node failure doesn't take both |
+
+Also needed for a true zero-downtime rollout:
+
+- **Graceful SIGTERM shutdown in the app.** It needs to stop accepting connections and drain in-flight requests (app code, deferred to a follow-up PR).
+- **A `preStop` delay**, so endpoints are removed before the process stops.
+- **A rollout test that proves it** ([CI.md#rollout-verification](CI.md#rollout-verification)).
+
+Rendering with all three values set passes kubeconform, and clears kube-linter's `no-rolling-update-strategy` and `no-anti-affinity`.
+
+## Auth secret
+
+The app reads its token from a file (`SECRET_FILE_PATH`). The chart mounts Secret `auth.existingSecret` (key `token`) read-only at `/var/run/secrets/echo-pong/` and points `SECRET_FILE_PATH` at it. The chart never creates the Secret, so no token lives in the repo or in values (README L52). Create it out-of-band, for example:
+
+```sh
+kubectl -n echo-pong create secret generic echo-pong-auth --from-literal=token="$(openssl rand -hex 16)"
+```
+
+The app reads the file once at startup, so pods need a restart (`kubectl rollout restart`) after rotating the token.
+
+## Probes
+
+The app sleeps 10s before it listens (README L32). The `startupProbe` allows 15 × 2s = 30s before failing, and readiness/liveness only start after it succeeds. This keeps a slow start from being killed by liveness, and pods only join the Service once `/health` answers.

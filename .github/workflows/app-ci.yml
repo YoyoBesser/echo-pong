@@ -1,0 +1,252 @@
+name: App CI
+
+# Path-filtered. See docs/CI.md#workflow-split
+on:
+  pull_request:
+    branches: [main]
+    paths: &paths
+      - src/**
+      - helm/**
+      - .github/workflows/app-ci.yml
+      - .github/actions/**
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+      branch-slug: ${{ steps.meta.outputs.branch-slug }}
+      image: ${{ steps.meta.outputs.image }}
+      registry: ${{ steps.meta.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+        # Unset on GitHub; act.sh points it at a local registry. See docs/LOCAL-TESTING.md#act-wrapper
+        with:
+          image: ${{ vars.CI_IMAGE }}
+
+  lint:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: app
+      # TODO: make all three blocking (drop continue-on-error). See docs/CI.md#soft-fail
+      - id: golangci
+        name: golangci-lint (hygiene)
+        continue-on-error: true
+        working-directory: src
+        run: golangci-lint run
+      - id: vet
+        name: go vet (correctness)
+        continue-on-error: true
+        working-directory: src
+        run: go vet -tags e2e ./...
+      - id: staticcheck
+        name: staticcheck (correctness)
+        continue-on-error: true
+        working-directory: src
+        run: staticcheck -tags e2e ./...
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|golangci-lint (hygiene)|${{ steps.golangci.outcome }}|${{ steps.golangci.conclusion }}
+            tests|go vet|${{ steps.vet.outcome }}|${{ steps.vet.conclusion }}
+            tests|staticcheck|${{ steps.staticcheck.outcome }}|${{ steps.staticcheck.conclusion }}
+
+  test:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "TODO go test"
+
+  # One buildx build, both arches, pushed as multi-arch <sha>. See docs/CI.md#build
+  build:
+    needs: [metadata, lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ needs.metadata.outputs.image }}
+      TAG: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
+        with:
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4  # latest: https://github.com/docker/setup-buildx-action/releases (checked 2026-10-21)
+        # Under act, builder must reach act.sh's localhost registry. See docs/LOCAL-TESTING.md#act-wrapper
+        with:
+          driver-opts: ${{ env.ACT && 'network=host' || '' }}
+      # Cross-compiles, no QEMU; registry cache per branch, main as fallback. See docs/CI.md#build-cache
+      - name: docker buildx build + push (amd64, arm64)
+        uses: docker/build-push-action@v7  # latest: https://github.com/docker/build-push-action/releases (checked 2026-10-21)
+        with:
+          context: src
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ env.TAG }}
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE }}:${{ needs.metadata.outputs.branch-slug }}-cache
+            type=registry,ref=${{ env.IMAGE }}:main-cache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:${{ needs.metadata.outputs.branch-slug }}-cache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
+      # Ship the exact binaries the image runs. See docs/CI.md#binary-e2e
+      - id: static-amd64
+        name: extract static binary (amd64)
+        run: .github/scripts/extract-binary.sh "$TAG" amd64 dist/amd64
+      - id: static-arm64
+        name: extract static binary (arm64)
+        run: .github/scripts/extract-binary.sh "$TAG" arm64 dist/arm64
+      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
+        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
+        continue-on-error: ${{ !!env.ACT }}
+        with:
+          name: binaries
+          path: dist/
+          retention-days: 1
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          scope: amd64
+          rows: |
+            tests|static binary|${{ steps.static-amd64.outcome }}|${{ steps.static-amd64.conclusion }}
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          scope: arm64
+          rows: |
+            tests|static binary|${{ steps.static-arm64.outcome }}|${{ steps.static-arm64.conclusion }}
+
+  # Same scans release uses; non-blocking until main.go is fixed. See docs/CI.md#reusable-scans
+  scan-source:
+    needs: metadata
+    uses: ./.github/workflows/scan-source.yml
+    with:
+      blocking: false  # TODO: true once fixed. See docs/CI.md#soft-fail
+
+  scan-image:
+    needs: [metadata, build]
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/scan-image.yml
+    with:
+      image: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
+      registry: ${{ needs.metadata.outputs.registry }}
+      blocking: false  # TODO: true once the Go toolchain is bumped. See docs/CI.md#soft-fail
+
+  # All e2e suites for one arch in one job, artifacts fetched once. See docs/CI.md#e2e-tests
+  e2e-tests:
+    name: e2e-tests (${{ matrix.arch }})
+    needs: [metadata, build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+      E2E_IMAGE: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - id: tools
+        uses: ./.github/actions/install-ci-tools
+        with:
+          suite: minikube
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
+        with:
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
+        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
+        continue-on-error: ${{ !!env.ACT }}
+        with:
+          name: binaries
+          path: dist
+      # Pull the multi-arch index; the runner must resolve its own arch.
+      - name: docker pull
+        run: |
+          set -euo pipefail
+          docker pull "$E2E_IMAGE"
+          got="$(docker image inspect --format '{{.Architecture}}' "$E2E_IMAGE")"
+          [[ "$got" == "$ARCH" ]] || { echo "::error::pulled $got, want $ARCH"; exit 1; }
+          chmod +x "dist/$ARCH/ping-pong-app"  # artifacts drop the exec bit
+      - id: cli
+        name: CLI e2e
+        working-directory: src
+        run: go test -tags e2e -count=1 -v -run '^TestCLI$' ./test/e2e
+      - id: api
+        name: API e2e
+        working-directory: src
+        run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
+      # Static binary on stock distros, same suites. See docs/CI.md#binary-e2e
+      - id: bin-ubuntu
+        name: binary e2e (ubuntu)
+        run: |
+          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=ubuntu:latest -t echo-pong:bin-ubuntu "dist/$ARCH"
+          cd src && E2E_IMAGE=echo-pong:bin-ubuntu go test -tags e2e -count=1 -v ./test/e2e
+      - id: bin-alpine
+        name: binary e2e (alpine)
+        run: |
+          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin-alpine "dist/$ARCH"
+          cd src && E2E_IMAGE=echo-pong:bin-alpine go test -tags e2e -count=1 -v ./test/e2e
+      - id: minikube
+        name: minikube e2e
+        env:
+          K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+        run: src/test/e2e/minikube-e2e.sh
+      # TODO: zero-downtime rollout check (README L56). See docs/CI.md#rollout-verification
+      - name: rollout verification
+        run: echo "TODO poll /health + /ping through the Gateway during helm upgrade; fail on any error"
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          scope: ${{ matrix.arch }}
+          rows: |
+            tests|CLI e2e|${{ steps.cli.outcome }}|${{ steps.cli.conclusion }}
+            tests|API e2e|${{ steps.api.outcome }}|${{ steps.api.conclusion }}
+            tests|binary e2e (ubuntu)|${{ steps.bin-ubuntu.outcome }}|${{ steps.bin-ubuntu.conclusion }}
+            tests|binary e2e (alpine)|${{ steps.bin-alpine.outcome }}|${{ steps.bin-alpine.conclusion }}
+            tests|minikube e2e|${{ steps.minikube.outcome }}|${{ steps.minikube.conclusion }}
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [lint, scan-source, build, scan-image, e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: lint scan-source build scan-image e2e-tests

@@ -1,0 +1,114 @@
+name: Helm CI
+
+# Path-filtered. See docs/CI.md#workflow-split
+on:
+  pull_request:
+    branches: [main]
+    paths: &paths
+      - helm/**
+      - .github/workflows/helm-ci.yml
+      - .github/actions/**
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+      branch-slug: ${{ steps.meta.outputs.branch-slug }}
+      image: ${{ steps.meta.outputs.image }}
+      registry: ${{ steps.meta.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+        # Unset on GitHub; act.sh points it at a local registry. See docs/LOCAL-TESTING.md#act-wrapper
+        with:
+          image: ${{ vars.CI_IMAGE }}
+
+  lint:
+    needs: metadata
+    runs-on: ubuntu-latest
+    env:
+      CHART: helm/echo-pong
+      RENDERED: rendered.yaml
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - id: tools
+        uses: ./.github/actions/install-ci-tools
+        with:
+          suite: helm
+      - name: helm dependency build
+        run: helm dependency build "$CHART"
+      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail
+      - id: helm-lint
+        name: helm lint
+        continue-on-error: true
+        run: helm lint --strict "$CHART"
+      # Test hooks excluded from render. See docs/CI.md#chart-lint
+      - id: template
+        name: helm template
+        continue-on-error: true
+        run: helm template echo-pong "$CHART" --skip-tests > "$RENDERED"
+      - id: kubeconform
+        name: kubeconform
+        continue-on-error: true
+        env:
+          K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+        # CRD schemas (Gateway API, Envoy) from the Datree catalog. See docs/CI.md#kubeconform
+        run: |
+          kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" -cache "$KUBECONFORM_CACHE" \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            "$RENDERED"
+      - id: kube-linter
+        name: kube-linter
+        continue-on-error: true
+        run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"
+      # Blocking: README-traced KSV IDs only; full report is informational. See docs/CI.md#trivy-config
+      - id: trivy-config
+        name: trivy config
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          trivy config --quiet -f json -o trivy-config.json "$RENDERED"
+          trivy convert --format table trivy-config.json
+          gate="$(grep -oE '^KSV-[0-9]+' helm/.trivy-ksv-gate | jq -R . | jq -cs .)"
+          jq -r --argjson gate "$gate" '.Results[]?.Misconfigurations[]?
+            | select(.Status == "FAIL" and (.ID | IN($gate[])))
+            | "\(.ID) \(.Message)"' trivy-config.json | sort -u > gate-failures.txt
+          if [[ -s gate-failures.txt ]]; then echo "::error::README-gated KSV checks failed"; cat gate-failures.txt; exit 1; fi
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|helm lint --strict|${{ steps.helm-lint.outcome }}|${{ steps.helm-lint.conclusion }}
+            tests|helm template|${{ steps.template.outcome }}|${{ steps.template.conclusion }}
+            tests|kubeconform -strict|${{ steps.kubeconform.outcome }}|${{ steps.kubeconform.conclusion }}
+            tests|kube-linter (README policy)|${{ steps.kube-linter.outcome }}|${{ steps.kube-linter.conclusion }}
+            security|trivy config (README KSV gate)|${{ steps.trivy-config.outcome }}|${{ steps.trivy-config.conclusion }}
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: lint

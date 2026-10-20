@@ -1,0 +1,212 @@
+name: Install CI tools
+description: Install the pinned toolchain for one CI suite, cached across runs. All CI tool versions live here.
+
+inputs:
+  suite:
+    description: "Which toolchain to install: app (Go, golangci-lint, staticcheck, gosec, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks) or github (uv + locked Python deps, actionlint)."
+    required: true
+
+outputs:
+  k8s-version:
+    description: Kubernetes version for kubeconform schemas, minikube and kubectl.
+    value: ${{ steps.pins.outputs.k8s-version }}
+
+runs:
+  using: composite
+  steps:
+    # Single source of truth for versions. See docs/CI.md#tool-pins
+    - id: pins
+      shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+      run: |
+        case "$SUITE" in app|helm|minikube|scan|repo|github) ;; *) echo "::error::unknown suite '$SUITE' (want app|helm|minikube|scan|repo|github)"; exit 1 ;; esac
+        # Comments stripped before writing outputs; the hash keys the tools cache.
+        pins="$(sed -e 's/[[:space:]]*#.*$//' -e '/^$/d' <<'EOF'
+        golangci-lint=v2.15.0            # latest: https://github.com/golangci/golangci-lint/releases (checked 2026-10-21)
+        staticcheck=2026.2.2             # latest: https://github.com/dominikh/go-tools/releases (checked 2026-10-21)
+        gosec=v2.29.0                    # latest: https://github.com/securego/gosec/releases (checked 2026-10-21)
+        govulncheck=v1.9.0               # latest: https://github.com/golang/vuln/tags (checked 2026-10-21)
+        helm=v4.3.1                      # latest: https://github.com/helm/helm/releases (checked 2026-10-21)
+        kubeconform=v0.8.0               # latest: https://github.com/yannh/kubeconform/releases (checked 2026-10-21)
+        kube-linter=v0.8.3               # latest: https://github.com/stackrox/kube-linter/releases (checked 2026-10-21)
+        minikube=v1.39.0                 # latest: https://github.com/kubernetes/minikube/releases (checked 2026-10-21)
+        trivy=v0.76.0                    # latest: https://github.com/aquasecurity/trivy/releases (checked 2026-10-21)
+        trivy-plugin-govulncheck=v0.1.4  # latest: https://github.com/DataDog/trivy-plugin-govulncheck/releases (checked 2026-10-21)
+        gitleaks=v8.30.1                 # latest: https://github.com/gitleaks/gitleaks/releases (checked 2026-10-21)
+        uv=0.13.4                        # latest: https://github.com/astral-sh/uv/releases (checked 2026-10-21)
+        actionlint=v1.7.12               # latest: https://github.com/rhysd/actionlint/releases (checked 2026-10-21)
+        k8s-version=1.37.0               # newest in kubeconform schemas + minikube 'stable'; dl.k8s.io stable is v1.37.1 (checked 2026-10-21)
+        EOF
+        )"
+        {
+          echo "$pins"
+          echo "hash=$(printf '%s' "$pins" | sha256sum | cut -c1-16)"
+          echo "date=$(date -u +%F)"
+        } >> "$GITHUB_OUTPUT"
+
+    # Downloaded tools live in a per-suite dir restored from cache. See docs/CI.md#tool-cache
+    - shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+      run: |
+        bin="$HOME/.cache/ci-tools/$SUITE" && mkdir -p "$bin" && echo "$bin" >> "$GITHUB_PATH"
+        {
+          echo "CI_TOOLS_BIN=$bin"
+          echo "CI_TOOLS_ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+        } >> "$GITHUB_ENV"
+    - id: tools-cache
+      uses: actions/cache@v6  # latest: https://github.com/actions/cache/releases (checked 2026-10-21)
+      with:
+        path: ~/.cache/ci-tools/${{ inputs.suite }}
+        key: ci-tools-${{ inputs.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.hash }}
+
+    # Go version comes from src/go.mod, not a pin here. Module + build cache keyed on go.mod.
+    - if: inputs.suite == 'app' || inputs.suite == 'minikube'
+      uses: actions/setup-go@v7  # latest: https://github.com/actions/setup-go/releases (checked 2026-10-21)
+      with:
+        go-version-file: src/go.mod
+        cache-dependency-path: src/go.mod
+    # Release binaries are checksum-verified; govulncheck has none, so go install. See docs/CI.md#sast-and-sca
+    - if: inputs.suite == 'app' && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GOLANGCI_LINT_VERSION: ${{ steps.pins.outputs.golangci-lint }}
+        STATICCHECK_VERSION: ${{ steps.pins.outputs.staticcheck }}
+        GOSEC_VERSION: ${{ steps.pins.outputs.gosec }}
+        GOVULNCHECK_VERSION: ${{ steps.pins.outputs.govulncheck }}
+      run: |
+        set -euo pipefail
+        arch="$CI_TOOLS_ARCH" bin="$CI_TOOLS_BIN"
+        cd "$RUNNER_TEMP"
+        v="${GOLANGCI_LINT_VERSION#v}" gl="golangci-lint-$v-linux-$arch" gl_url="https://github.com/golangci/golangci-lint/releases/download/$GOLANGCI_LINT_VERSION"
+        curl -fsSLO "$gl_url/$gl.tar.gz" && curl -fsSL "$gl_url/golangci-lint-$v-checksums.txt" | grep " $gl.tar.gz\$" | sha256sum -c -
+        tar -xzf "$gl.tar.gz" && mv "$gl/golangci-lint" "$bin/"
+        sc="staticcheck_linux_$arch.tar.gz" sc_url="https://github.com/dominikh/go-tools/releases/download/$STATICCHECK_VERSION"
+        curl -fsSLO "$sc_url/$sc" && curl -fsSL "$sc_url/$sc.sha256" | sha256sum -c -
+        tar -xzf "$sc" && mv staticcheck/staticcheck "$bin/"
+        v="${GOSEC_VERSION#v}" gs="gosec_${v}_linux_$arch.tar.gz" gs_url="https://github.com/securego/gosec/releases/download/$GOSEC_VERSION"
+        curl -fsSLO "$gs_url/$gs" && curl -fsSL "$gs_url/gosec_${v}_checksums.txt" | grep " $gs\$" | sha256sum -c -
+        tar -xzf "$gs" -C "$bin" gosec
+        GOBIN="$bin" GOTOOLCHAIN=auto go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
+
+    - if: (inputs.suite == 'helm' || inputs.suite == 'minikube') && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        HELM_VERSION: ${{ steps.pins.outputs.helm }}
+      run: |
+        set -euo pipefail
+        tgz="helm-$HELM_VERSION-linux-$CI_TOOLS_ARCH.tar.gz"
+        cd "$RUNNER_TEMP"
+        curl -fsSLO "https://get.helm.sh/$tgz" && curl -fsSL "https://get.helm.sh/$tgz.sha256sum" | sha256sum -c -
+        tar -xzf "$tgz" && mv "linux-$CI_TOOLS_ARCH/helm" "$CI_TOOLS_BIN/"
+    - if: inputs.suite == 'helm' && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        KUBECONFORM_VERSION: ${{ steps.pins.outputs.kubeconform }}
+        KUBE_LINTER_VERSION: ${{ steps.pins.outputs.kube-linter }}
+      run: |
+        set -euo pipefail
+        arch="$CI_TOOLS_ARCH" bin="$CI_TOOLS_BIN"
+        curl -fsSL "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-$arch.tar.gz" \
+          | tar -xz -C "$bin" kubeconform
+        suffix="" && [[ "$arch" == "arm64" ]] && suffix="_arm64"
+        curl -fsSL "https://github.com/stackrox/kube-linter/releases/download/$KUBE_LINTER_VERSION/kube-linter-linux$suffix" \
+          -o "$bin/kube-linter"
+        chmod +x "$bin/kube-linter"
+    # Schemas kubeconform fetches at runtime (core + CRD catalog). See docs/CI.md#tool-cache
+    - if: inputs.suite == 'helm'
+      shell: bash
+      run: mkdir -p ~/.cache/kubeconform && echo "KUBECONFORM_CACHE=$HOME/.cache/kubeconform" >> "$GITHUB_ENV"
+    - if: inputs.suite == 'helm'
+      uses: actions/cache@v6  # latest: https://github.com/actions/cache/releases (checked 2026-10-21)
+      with:
+        path: ~/.cache/kubeconform
+        key: kubeconform-${{ steps.pins.outputs.k8s-version }}-${{ hashFiles('helm/**') }}
+        restore-keys: kubeconform-${{ steps.pins.outputs.k8s-version }}-
+
+    # kubectl tracks k8s-version, so client and cluster match.
+    - if: inputs.suite == 'minikube' && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        MINIKUBE_VERSION: ${{ steps.pins.outputs.minikube }}
+        K8S_VERSION: ${{ steps.pins.outputs.k8s-version }}
+      run: |
+        set -euo pipefail
+        arch="$CI_TOOLS_ARCH" bin="$CI_TOOLS_BIN"
+        curl -fsSL "https://github.com/kubernetes/minikube/releases/download/$MINIKUBE_VERSION/minikube-linux-$arch" -o "$bin/minikube"
+        curl -fsSL "https://dl.k8s.io/release/v$K8S_VERSION/bin/linux/$arch/kubectl" -o "$bin/kubectl"
+        chmod +x "$bin/minikube" "$bin/kubectl"
+    # Preload tarball + kicbase image (~1 GB) that minikube start downloads. See docs/CI.md#tool-cache
+    - if: inputs.suite == 'minikube'
+      uses: actions/cache@v6  # latest: https://github.com/actions/cache/releases (checked 2026-10-21)
+      with:
+        path: ~/.minikube/cache
+        key: minikube-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.minikube }}-k8s-${{ steps.pins.outputs.k8s-version }}
+
+    # Checksum-verified release tarballs, no third-party action. See docs/CI.md#image-scan
+    - if: (inputs.suite == 'scan' || inputs.suite == 'helm' || inputs.suite == 'repo') && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        TRIVY_VERSION: ${{ steps.pins.outputs.trivy }}
+        PLUGIN_VERSION: ${{ steps.pins.outputs.trivy-plugin-govulncheck }}
+        SUITE: ${{ inputs.suite }}
+      run: |
+        set -euo pipefail
+        arch="$(echo "$CI_TOOLS_ARCH" | sed 's/amd64/64bit/; s/arm64/ARM64/')"
+        v="${TRIVY_VERSION#v}" tgz="trivy_${v}_Linux-${arch}.tar.gz"
+        url="https://github.com/aquasecurity/trivy/releases/download/$TRIVY_VERSION"
+        cd "$RUNNER_TEMP"
+        curl -fsSLO "$url/$tgz" && curl -fsSL "$url/trivy_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
+        tar -xzf "$tgz" -C "$CI_TOOLS_BIN" trivy
+        [[ "$SUITE" == scan ]] || exit 0
+        v="${PLUGIN_VERSION#v}" tgz="trivy-govulncheck_${v}_linux-$CI_TOOLS_ARCH.tar.gz"
+        url="https://github.com/DataDog/trivy-plugin-govulncheck/releases/download/$PLUGIN_VERSION"
+        curl -fsSLO "$url/$tgz" && curl -fsSL "$url/trivy-govulncheck_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
+        mv "$tgz" "$CI_TOOLS_BIN/trivy-govulncheck.tar.gz"
+    # Plugin installs from the cached tarball: local, no network.
+    - if: inputs.suite == 'scan'
+      shell: bash
+      run: trivy plugin install "$CI_TOOLS_BIN/trivy-govulncheck.tar.gz"
+    # Vulnerability DB + misconfig checks bundle, refreshed daily. See docs/CI.md#tool-cache
+    - if: inputs.suite == 'scan' || inputs.suite == 'helm'
+      uses: actions/cache@v6  # latest: https://github.com/actions/cache/releases (checked 2026-10-21)
+      with:
+        path: ~/.cache/trivy
+        key: trivy-${{ runner.os }}-${{ steps.pins.outputs.date }}
+        restore-keys: trivy-${{ runner.os }}-
+
+    - if: inputs.suite == 'repo' && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GITLEAKS_VERSION: ${{ steps.pins.outputs.gitleaks }}
+      run: |
+        set -euo pipefail
+        arch="$(echo "$CI_TOOLS_ARCH" | sed 's/amd64/x64/')"
+        v="${GITLEAKS_VERSION#v}" tgz="gitleaks_${v}_linux_${arch}.tar.gz"
+        url="https://github.com/gitleaks/gitleaks/releases/download/$GITLEAKS_VERSION"
+        cd "$RUNNER_TEMP"
+        curl -fsSLO "$url/$tgz" && curl -fsSL "$url/gitleaks_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
+        tar -xzf "$tgz" -C "$CI_TOOLS_BIN" gitleaks
+
+    # Python + ruff/pytest versions come from .github/.python-version and uv.lock. See docs/CI.md#common-ci
+    - if: inputs.suite == 'github'
+      uses: astral-sh/setup-uv@v10.3.0  # latest: https://github.com/astral-sh/setup-uv/releases (checked 2026-10-21) (no floating major tags upstream)
+      with:
+        version: ${{ steps.pins.outputs.uv }}
+        enable-cache: true
+        cache-dependency-glob: .github/uv.lock
+    - if: inputs.suite == 'github'
+      shell: bash
+      run: uv sync --locked --directory .github
+    - if: inputs.suite == 'github' && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ACTIONLINT_VERSION: ${{ steps.pins.outputs.actionlint }}
+      run: |
+        set -euo pipefail
+        v="${ACTIONLINT_VERSION#v}" tgz="actionlint_${v}_linux_$CI_TOOLS_ARCH.tar.gz"
+        url="https://github.com/rhysd/actionlint/releases/download/$ACTIONLINT_VERSION"
+        cd "$RUNNER_TEMP"
+        curl -fsSLO "$url/$tgz" && curl -fsSL "$url/actionlint_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
+        tar -xzf "$tgz" -C "$CI_TOOLS_BIN" actionlint

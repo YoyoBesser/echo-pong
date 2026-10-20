@@ -1,0 +1,19 @@
+version: "2"
+
+run:
+  build-tags: [e2e]
+
+# Hygiene only; vet, staticcheck, gosec run standalone. See docs/CI.md#go-lint
+linters:
+  default: none
+  enable:
+    - errcheck
+    - ineffassign
+    - unused
+    - errorlint
+    - bodyclose
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
