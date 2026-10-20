@@ -2,7 +2,7 @@
 
 ## CI
 
-Workflows run locally with [act](https://github.com/nektos/act), which runs each job in a Docker container.
+Workflows run locally with [act](https://github.com/nektos/act), which runs each job in a Docker container. Use the [act wrapper](#act-wrapper) instead of calling act directly.
 
 ### Setup
 
@@ -91,3 +91,24 @@ cd .github && uv run --locked ruff check . && uv run --locked ruff format --chec
 ```
 
 uv picks Python 3.14 from `.github/.python-version`. Use uv ≥ 0.13 (CI pins 0.13.4). After editing dependencies in `pyproject.toml`, run `uv lock` and commit `uv.lock`.
+
+## Act wrapper
+
+[`.github/scripts/act.sh`](../.github/scripts/act.sh) runs a workflow, or one job, with the local stand-ins that make it behave like GitHub:
+
+```sh
+.github/scripts/act.sh app-ci                 # whole workflow, push event
+.github/scripts/act.sh app-ci build           # one job (act runs its needs first)
+.github/scripts/act.sh app-ci e2e-tests --arch arm64
+.github/scripts/act.sh helm-ci --pr           # pull_request event built from current branch + HEAD
+.github/scripts/act.sh app-ci lint -- -v      # extra act flags after --
+```
+
+What it sets up:
+
+- **Local registry** (`registry:3.1.2` on `localhost:5000`, container `act-registry`) as the GHCR stand-in, removed on exit (`KEEP_REGISTRY=1` keeps it). `--var CI_IMAGE=localhost:5000/echo-pong` makes `gather-metadata` push and pull there, so a local run never touches the real GHCR.
+- **buildx on the host network**: under act (`env.ACT`), `setup-buildx-action` uses `driver-opts: network=host`, so the BuildKit container can reach that registry.
+- **Event payload**: `-W` for the workflow, a `pull_request` payload from git for `--pr`, and `--matrix arch:<arch>` for `--arch`.
+- **Token**: `GITHUB_TOKEN` from `gh auth token`. act needs it to clone remote actions; with a dummy token they're silently skipped. The local registry accepts it as a login.
+
+Still not possible under act: artifact upload/download (act's artifact server doesn't speak v7). Those steps are non-fatal under act (`continue-on-error: ${{ !!env.ACT }}`), so jobs after `build` that need artifacts (`e2e-tests`, `summary`) won't have them. Run e2e directly per [E2E](#e2e).

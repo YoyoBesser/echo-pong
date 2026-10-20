@@ -9,6 +9,9 @@ Rules for every workflow in this directory. Repo-wide rules: [../../AGENTS.md](.
 - Every pin, whether a tool in the pins block or an action `uses:`, carries a trailing `# latest: <release page URL> (checked YYYY-MM-DD)`. When you bump a pin or re-check it, update that date.
 - Python under `.github/` runs only through uv: `uv run --locked` in `.github/`. The Python version comes from `.github/.python-version`, and dependencies from `pyproject.toml` + `uv.lock`. Any Python change must keep `ruff check`, `ruff format --check` and pytest at 100% coverage passing ([docs/CI.md#github-ci](../../docs/CI.md#github-ci)).
 - Arch matrices use native runners: `amd64` on `ubuntu-latest`, `arm64` on `ubuntu-24.04-arm`.
+- Images are built once for both arches and go to GHCR as the multi-arch `<image>:<sha>` (full commit SHA). The registry cache is `<branch-slug>-cache`, falling back to `main-cache` ([docs/CI.md#image-tags](../../docs/CI.md#image-tags)). Image names, registry hosts and slugs come from `gather-metadata` outputs, never hand-built.
+- Steps that can't work under act (artifact upload/download) set `continue-on-error: ${{ !!env.ACT }}`: non-fatal locally, blocking on GitHub. Run workflows locally through `.github/scripts/act.sh` ([docs/LOCAL-TESTING.md#act-wrapper](../../docs/LOCAL-TESTING.md#act-wrapper)).
+- Default `permissions: contents: read`. A job that pushes images adds `packages: write`. A job that only pulls adds `packages: read`.
 - Untrusted values (`head_ref`, commit messages, inputs) go through `env:`, never inline `${{ }}` in `run:` ([docs/CI.md#script-injection](../../docs/CI.md#script-injection)).
 
 ## Checks and the summary tables

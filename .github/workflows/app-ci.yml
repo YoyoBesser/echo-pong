@@ -30,10 +30,16 @@ jobs:
       short-sha: ${{ steps.meta.outputs.short-sha }}
       commit-message: ${{ steps.meta.outputs.commit-message }}
       reason: ${{ steps.meta.outputs.reason }}
+      branch-slug: ${{ steps.meta.outputs.branch-slug }}
+      image: ${{ steps.meta.outputs.image }}
+      registry: ${{ steps.meta.outputs.registry }}
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: meta
         uses: ./.github/actions/gather-metadata
+        # Unset on GitHub; act.sh points it at a local registry. See docs/LOCAL-TESTING.md#act-wrapper
+        with:
+          image: ${{ vars.CI_IMAGE }}
 
   lint:
     needs: metadata
@@ -91,77 +97,89 @@ jobs:
     steps:
       - run: echo "TODO secret scanning"
 
-  # Native runner per arch, no QEMU. See docs/CI.md#build-matrix
+  # One buildx build, both arches, pushed as multi-arch <sha>. See docs/CI.md#build
   build:
     needs: [metadata, lint, test]
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     env:
-      ARCH: ${{ matrix.arch }}
+      IMAGE: ${{ needs.metadata.outputs.image }}
+      TAG: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
-      - name: docker build
-        run: |
-          set -euo pipefail
-          docker build --platform "linux/$ARCH" -t echo-pong:ci src/
-          docker save echo-pong:ci | gzip > "image-$ARCH.tar.gz"
-      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
         with:
-          name: image-${{ matrix.arch }}
-          path: image-${{ matrix.arch }}.tar.gz
-          retention-days: 1
-      # Ship the exact binary the image runs. See docs/CI.md#binary-e2e
-      - id: static
-        name: extract static binary
-        run: |
-          set -euo pipefail
-          id="$(docker create echo-pong:ci)"
-          mkdir -p dist && docker cp "$id:/usr/local/bin/ping-pong-app" dist/ping-pong-app && docker rm "$id"
-          file dist/ping-pong-app | tee /dev/stderr | grep -q 'statically linked'
-      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4  # latest: https://github.com/docker/setup-buildx-action/releases (checked 2026-10-21)
+        # Under act, builder must reach act.sh's localhost registry. See docs/LOCAL-TESTING.md#act-wrapper
         with:
-          name: binary-${{ matrix.arch }}
-          path: dist/ping-pong-app
+          driver-opts: ${{ env.ACT && 'network=host' || '' }}
+      # Cross-compiles, no QEMU; registry cache per branch, main as fallback. See docs/CI.md#build-cache
+      - name: docker buildx build + push (amd64, arm64)
+        uses: docker/build-push-action@v7  # latest: https://github.com/docker/build-push-action/releases (checked 2026-10-21)
+        with:
+          context: src
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ env.TAG }}
+          cache-from: |
+            type=registry,ref=${{ env.IMAGE }}:${{ needs.metadata.outputs.branch-slug }}-cache
+            type=registry,ref=${{ env.IMAGE }}:main-cache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:${{ needs.metadata.outputs.branch-slug }}-cache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
+      # Ship the exact binaries the image runs. See docs/CI.md#binary-e2e
+      - id: static-amd64
+        name: extract static binary (amd64)
+        run: .github/scripts/extract-binary.sh "$TAG" amd64 dist/amd64
+      - id: static-arm64
+        name: extract static binary (arm64)
+        run: .github/scripts/extract-binary.sh "$TAG" arm64 dist/arm64
+      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
+        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
+        continue-on-error: ${{ !!env.ACT }}
+        with:
+          name: binaries
+          path: dist/
           retention-days: 1
-      - id: scan-tools
-        uses: ./.github/actions/install-ci-tools
+      - uses: ./.github/actions/install-ci-tools
         with:
           suite: scan
-      # govulncheck plugin pulls the image itself, so serve it from a local registry. See docs/CI.md#image-scan
-      - name: push to local registry
-        env:
-          REGISTRY_IMAGE: ${{ steps.scan-tools.outputs.registry-image }}
-        run: |
-          docker run -d --name registry -p 5000:5000 "$REGISTRY_IMAGE"
-          docker tag echo-pong:ci localhost:5000/echo-pong:ci
-          docker push -q localhost:5000/echo-pong:ci
       # Fail on CRITICAL/HIGH, fixable or not (README L51). TODO: make blocking. See docs/CI.md#soft-fail
-      - id: trivy
-        name: trivy image scan (vuln + misconfig, govulncheck-filtered)
+      - id: trivy-amd64
+        name: trivy image scan (amd64)
         continue-on-error: true
-        run: |
-          set -euo pipefail
-          trivy image --no-progress --severity CRITICAL,HIGH --image-config-scanners misconfig \
-            -f json -o plugin=govulncheck localhost:5000/echo-pong:ci > trivy-image.json
-          trivy convert --format table --exit-code 1 --severity CRITICAL,HIGH trivy-image.json
+        run: .github/scripts/trivy-image.sh "$TAG" amd64
+      - id: trivy-arm64
+        name: trivy image scan (arm64)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: .github/scripts/trivy-image.sh "$TAG" arm64
       - if: always()
         uses: ./.github/actions/record-results
         with:
-          scope: ${{ matrix.arch }}
+          scope: amd64
           rows: |
-            tests|static binary|${{ steps.static.outcome }}|${{ steps.static.conclusion }}
-            security|trivy image (vuln + misconfig)|${{ steps.trivy.outcome }}|${{ steps.trivy.conclusion }}
+            tests|static binary|${{ steps.static-amd64.outcome }}|${{ steps.static-amd64.conclusion }}
+            security|trivy image (vuln + misconfig)|${{ steps.trivy-amd64.outcome }}|${{ steps.trivy-amd64.conclusion }}
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          scope: arm64
+          rows: |
+            tests|static binary|${{ steps.static-arm64.outcome }}|${{ steps.static-arm64.conclusion }}
+            security|trivy image (vuln + misconfig)|${{ steps.trivy-arm64.outcome }}|${{ steps.trivy-arm64.conclusion }}
 
   # All e2e suites for one arch in one job, artifacts fetched once. See docs/CI.md#e2e-tests
   e2e-tests:
     name: e2e-tests (${{ matrix.arch }})
-    needs: build
+    needs: [metadata, build]
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -173,24 +191,32 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       ARCH: ${{ matrix.arch }}
-      E2E_IMAGE: echo-pong:ci
+      E2E_IMAGE: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: tools
         uses: ./.github/actions/install-ci-tools
         with:
           suite: minikube
-      - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
         with:
-          name: image-${{ matrix.arch }}
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
+        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
+        continue-on-error: ${{ !!env.ACT }}
         with:
-          name: binary-${{ matrix.arch }}
+          name: binaries
           path: dist
-      - name: docker load
+      # Pull the multi-arch index; the runner must resolve its own arch.
+      - name: docker pull
         run: |
-          gunzip -c "image-$ARCH.tar.gz" | docker load
-          chmod +x dist/ping-pong-app  # artifacts drop the exec bit
+          set -euo pipefail
+          docker pull "$E2E_IMAGE"
+          got="$(docker image inspect --format '{{.Architecture}}' "$E2E_IMAGE")"
+          [[ "$got" == "$ARCH" ]] || { echo "::error::pulled $got, want $ARCH"; exit 1; }
+          chmod +x "dist/$ARCH/ping-pong-app"  # artifacts drop the exec bit
       - id: cli
         name: CLI e2e
         working-directory: src
@@ -203,12 +229,12 @@ jobs:
       - id: bin-ubuntu
         name: binary e2e (ubuntu)
         run: |
-          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=ubuntu:latest -t echo-pong:bin-ubuntu dist/
+          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=ubuntu:latest -t echo-pong:bin-ubuntu "dist/$ARCH"
           cd src && E2E_IMAGE=echo-pong:bin-ubuntu go test -tags e2e -count=1 -v ./test/e2e
       - id: bin-alpine
         name: binary e2e (alpine)
         run: |
-          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin-alpine dist/
+          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin-alpine "dist/$ARCH"
           cd src && E2E_IMAGE=echo-pong:bin-alpine go test -tags e2e -count=1 -v ./test/e2e
       - id: minikube
         name: minikube e2e

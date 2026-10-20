@@ -1,6 +1,11 @@
 name: Gather metadata
 description: Resolve branch, commit and trigger reason for the current run and expose them as outputs. Requires a prior actions/checkout.
 
+inputs:
+  image:
+    description: Image name override (e.g. localhost:5000/echo-pong under act). Default ghcr.io/<owner>/<repo>.
+    default: ""
+
 outputs:
   branch:
     description: Branch the run is for (PR head branch on pull requests; empty on tag pushes).
@@ -17,6 +22,15 @@ outputs:
   reason:
     description: Event that triggered the run (push, pull_request, workflow_dispatch, ...).
     value: ${{ steps.meta.outputs.reason }}
+  branch-slug:
+    description: Branch as a valid image tag (lowercase, [a-z0-9._-]); empty on tag pushes.
+    value: ${{ steps.meta.outputs.branch-slug }}
+  image:
+    description: Image name, lowercase (ghcr.io/<owner>/<repo> unless overridden).
+    value: ${{ steps.meta.outputs.image }}
+  registry:
+    description: Registry host of `image`, for docker login.
+    value: ${{ steps.meta.outputs.registry }}
 
 runs:
   using: composite
@@ -31,6 +45,8 @@ runs:
         HEAD_REF: ${{ github.head_ref }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         SHA: ${{ github.sha }}
+        REPOSITORY: ${{ github.repository }}
+        IMAGE_OVERRIDE: ${{ inputs.image }}
       run: |
         set -euo pipefail
 
@@ -50,8 +66,15 @@ runs:
           message="$(git log -1 --format=%s "$sha")"
         fi
 
+        # Tag-safe branch: feat/a.b/c -> feat-a.b-c. See docs/CI.md#image-tags
+        slug="$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^[.-]+//; s/-+$//' | cut -c1-100)"
+
         {
           echo "branch=$branch"
+          echo "branch-slug=$slug"
+          image="${IMAGE_OVERRIDE:-ghcr.io/$REPOSITORY}" && image="$(printf '%s' "$image" | tr '[:upper:]' '[:lower:]')"
+          echo "image=$image"
+          echo "registry=${image%%/*}"
           echo "sha=$sha"
           echo "short-sha=${sha:0:7}"
           echo "commit-message=$message"

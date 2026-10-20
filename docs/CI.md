@@ -6,7 +6,7 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint, SAST, SCA](#go-lint), [build matrix](#build-matrix) + [image scan](#image-scan), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint, SAST, SCA](#go-lint), [multi-arch build](#build) (GHCR push, [cache](#build-cache)) + [image scan](#image-scan), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
 | [`github-ci.yml`](../.github/workflows/github-ci.yml) | `.github/**` | [actionlint, ruff, pytest at 100% coverage](#github-ci), [summary](#build-summary) |
 
@@ -73,7 +73,7 @@ Every CI tool version lives in one block in [`.github/actions/install-ci-tools`]
 | `app` | Go, golangci-lint, staticcheck, gosec, govulncheck |
 | `helm` | helm, kubeconform, kube-linter, trivy |
 | `minikube` | Go, helm, minikube, kubectl |
-| `scan` | trivy + `trivy-plugin-govulncheck`; also outputs the local `registry-image` |
+| `scan` | trivy + `trivy-plugin-govulncheck` |
 | `github` | uv (then `uv sync --locked` in `.github/`), actionlint |
 
 An unknown suite fails fast. Binaries are fetched from upstream releases and checked against the published SHA-256 checksums. One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
@@ -82,11 +82,38 @@ Exceptions: the Go version comes from `src/go.mod`, so the toolchain matches the
 
 Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so it's clear when it was last compared to upstream. The pins block strips these comments before writing `$GITHUB_OUTPUT`. All pins were on their latest release as of 2026-10-21, except `k8s-version` (see above) and the Go 1.24 toolchain, which comes from the original `go.mod`.
 
-## Build matrix
+## Build
 
-`build` runs once per arch on a native GitHub runner: `ubuntu-latest` for amd64 and `ubuntu-24.04-arm` for arm64. Each leg builds [`src/Dockerfile`](../src/Dockerfile) as `echo-pong:ci` and uploads it as a gzipped `docker save` tarball (artifact `image-<arch>`, kept 1 day). It also copies the binary out of that image as artifact `binary-<arch>` (see [Binary e2e](#binary-e2e)).
+`build` is a single job: one `docker buildx build --platform linux/amd64,linux/arm64` of [`src/Dockerfile`](../src/Dockerfile), pushed to GHCR as the multi-arch `<image>:<sha>` (see [Image tags](#image-tags)), using the [registry cache](#build-cache). The Dockerfile cross-compiles Go on the build platform, and its busybox stage also runs on the build platform (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). So no build step executes target-arch code, and one amd64 runner builds both arches without QEMU.
 
-Native runners keep any target-arch execution (e2e, future scans) unemulated and fast. The Dockerfile itself cross-compiles (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)), so a single-runner `buildx --platform linux/amd64,linux/arm64` build also works. That's the likely shape for the release push.
+After the push, the same job:
+
+- Copies each arch's binary out of the pushed index with [`extract-binary.sh`](../.github/scripts/extract-binary.sh), fails unless it's static, and uploads both as artifact `binaries` (`amd64/`, `arm64/`). See [Binary e2e](#binary-e2e).
+- [Scans](#image-scan) each arch with [`trivy-image.sh`](../.github/scripts/trivy-image.sh).
+
+Target-arch execution (e2e, minikube) happens later, in `e2e-tests` on native runners per arch.
+
+### Image tags
+
+Every CI run pushes to `ghcr.io/<owner>/<repo>` (lowercased by [`gather-metadata`](../.github/actions/gather-metadata/action.yml), here `ghcr.io/yoyobesser/echo-pong`):
+
+| Tag | What |
+|---|---|
+| `<sha>` | OCI index (amd64 + arm64) for the full commit SHA, which is the PR head commit on PRs (see [PR head commit](#pr-head-commit)) |
+| `<branch-slug>-cache` | [Build cache](#build-cache) |
+
+`branch-slug` is the branch lowercased, with runs of characters outside `[a-z0-9._-]` replaced by `-`, so `feat/yonatan.besser/home-assignment-init` becomes `feat-yonatan.besser-home-assignment-init`. Provenance attestations are off for CI images (`provenance: false`). Signing and SBOMs belong to the release workflow.
+
+Pushing needs `packages: write`, granted only to `build`. `e2e-tests` gets `packages: read`. PRs from forks get a read-only `GITHUB_TOKEN`, so they can't push. This repo's PRs come from branches in the same repo. Per-commit tags pile up, so they need a retention policy (README L94, see [tasks.md](tasks.md)).
+
+The registry is overridable: workflows pass `vars.CI_IMAGE` to `gather-metadata`, which outputs `image` and its `registry` host for `docker/login-action`. It's unset on GitHub. Locally, [act.sh](LOCAL-TESTING.md#act-wrapper) points it at a local registry.
+
+### Build cache
+
+The build reads and writes a BuildKit registry cache in GHCR. Because both platforms come from one build, one cache ref holds both:
+
+- `cache-to`: `<branch-slug>-cache`, with `mode=max` (cache every stage, including the Go build stage), `image-manifest=true,oci-mediatypes=true` (the cache stored as a regular OCI image, which GHCR accepts) and `ignore-error=true` (a cache export failure never fails the build).
+- `cache-from`: the branch's own cache first, then `main-cache`, so a new branch's first build starts warm from main. A missing ref is only a warning.
 
 ## E2E tests
 
@@ -99,7 +126,7 @@ The target is set by env. `E2E_IMAGE` makes the tests start containers themselve
 | CLI | `TestCLI` | `--help`, ping/pong, wrong/missing password, missing/unknown command, missing `SECRET_FILE_PATH` |
 | API | `TestAPI` | `/health`, `/`, `/ping` and `/pong` with no, wrong, raw and `Bearer` tokens |
 
-The `e2e-tests` job runs once per arch (`fail-fast: false`). It downloads the arch's image and binary artifacts once, then runs the suites in sequence, fastest first, so a broken image fails within seconds:
+The `e2e-tests` job runs once per arch on a native runner (`fail-fast: false`). It pulls the multi-arch `<image>:<sha>` from GHCR and fails unless the runner resolved its own arch, which also checks the index. It downloads the `binaries` artifact (using `dist/<arch>/`), then runs the suites in sequence, fastest first, so a broken image fails within seconds:
 
 - `CLI e2e`: `go test -run '^TestCLI$'` against containers.
 - `API e2e`: `go test -run '^TestAPI$'` against a container.
@@ -162,7 +189,7 @@ The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), 
 
 ## Binary e2e
 
-The release binary is the one inside the image, not a separate build. `build` copies `/usr/local/bin/ping-pong-app` out of the image it just built (`docker create` + `docker cp`) and fails unless `file` reports `statically linked`. It then uploads it as `binary-<arch>`. The container and the binary release can't drift: they are the same bytes.
+The release binary is the one inside the image, not a separate build. For each arch, `build` runs [`extract-binary.sh`](../.github/scripts/extract-binary.sh): `docker create --platform linux/<arch>` on the pushed index, then `docker cp` of `/usr/local/bin/ping-pong-app`. It fails unless `file` reports `statically linked`. Both binaries are uploaded as artifact `binaries`. The container and the binary release can't drift: they are the same bytes.
 
 The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
 
@@ -172,11 +199,11 @@ Artifacts don't keep file modes, so the step runs `chmod +x` first. darwin binar
 
 ## Image scan
 
-`build` scans each arch's image with trivy for CRITICAL/HIGH vulnerabilities (OS packages and the Go binary) and image-config misconfigurations (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them.
+`build` scans each arch of the pushed index ([`trivy-image.sh`](../.github/scripts/trivy-image.sh), `trivy image --platform linux/<arch>`) for CRITICAL/HIGH vulnerabilities (OS packages and the Go binary) and image-config misconfigurations (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them.
 
 Go-binary findings go through [`trivy-plugin-govulncheck`](https://github.com/DataDog/trivy-plugin-govulncheck) (v0.1.4). It runs govulncheck in binary mode on the image's Go binary, and drops (marks `not_affected`) the CVEs whose vulnerable code isn't reachable. The filtered JSON is then gated with `trivy convert --exit-code 1`, because the exit code of an output-plugin run doesn't reflect findings.
 
-The plugin pulls the image itself (via go-containerregistry, not trivy's cache or the Docker daemon). So the job runs a throwaway `registry:3.1.2` on `localhost:5000` and pushes the image there first. go-containerregistry allows plain HTTP for `localhost`. Pointing the plugin at a local-only tag instead makes it try Docker Hub and silently skip filtering.
+The plugin pulls the image itself (go-containerregistry, not trivy's cache or the Docker daemon), so the scan targets the pushed `<image>:<sha>` in GHCR. Unverified: which platform of the index the plugin extracts. The stdlib findings are the same on both arches, since it's one Go build. It authenticates with the credentials `docker/login-action` wrote. A tag that exists only in the local daemon makes the plugin fall back to Docker Hub and silently skip filtering.
 
 Both trivy and the plugin are installed from checksum-verified release tarballs rather than `aquasecurity/trivy-action`, so no third-party action code runs in the job. The plugin is installed from its tarball, not `trivy plugin install github.com/...`, which would fetch an unpinned manifest.
 

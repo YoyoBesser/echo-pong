@@ -17,7 +17,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 ## Mission
 
 - **[L42](../README.md?plain=1#L42): Take this application to production with support for both x86 and ARM64 ... binary release and a container release**
-  - [x] Image built for amd64 + arm64 on native runners ([CI.md#build-matrix](CI.md#build-matrix))
+  - [x] One buildx build for amd64 + arm64, pushed as a multi-arch index ([CI.md#build](CI.md#build))
   - [x] Static linux binaries (amd64, arm64) extracted from the CI image, e2e-tested on ubuntu + alpine ([CI.md#binary-e2e](CI.md#binary-e2e))
   - [ ] Release: multi-arch image to GHCR + binaries on GitHub Releases (`release.yml` placeholders)
 
@@ -70,10 +70,12 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 ## CI/CD
 
 - **[L62](../README.md?plain=1#L62): Multi-architecture builds (x86/ARM64)**
-  - [x] Native runner per arch in CI; Dockerfile cross-compiles ([CONTAINER.md#cross-compile](CONTAINER.md#cross-compile))
+  - [x] Single multi-platform buildx build, no QEMU; Dockerfile cross-compiles ([CONTAINER.md#cross-compile](CONTAINER.md#cross-compile))
+  - [x] Multi-arch OCI index per commit; e2e pulls it on native amd64 + arm64 runners
   - [ ] Multi-arch manifest on release
 - **[L63](../README.md?plain=1#L63): Images stored in GitHub Container Registry**
-  - [ ] `release.yml` pushes `ghcr.io/yoyobesser/echo-pong` with version + SHA tags
+  - [x] CI pushes every commit to `ghcr.io/yoyobesser/echo-pong:<sha>` (multi-arch), registry build cache `<branch-slug>-cache` / `main-cache` ([CI.md#image-tags](CI.md#image-tags))
+  - [ ] `release.yml` pushes `ghcr.io/yoyobesser/echo-pong` with version tags
   - [ ] Chart pushed to GHCR as OCI
 - **[L64](../README.md?plain=1#L64): Versioned releases with tags**
   - [x] `release.yml` triggers on `vX.Y.Z` tags
@@ -125,7 +127,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L109](../README.md?plain=1#L109): The scaling strategy**: [ ] doc (HPA, replica floor, PDB)
 - **[L110](../README.md?plain=1#L110): The security measures**: [ ] `SECURITY.md` (summarise L49–L53)
 - **[L111](../README.md?plain=1#L111): The CI/CD pipeline**: [x] [CI.md](CI.md); [ ] release + CD sections
-- **[L112](../README.md?plain=1#L112): The multi-architecture builds**: [x] [CI.md#build-matrix](CI.md#build-matrix), [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)
+- **[L112](../README.md?plain=1#L112): The multi-architecture builds**: [x] [CI.md#build](CI.md#build), [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)
 - **[L113](../README.md?plain=1#L113): The versioning and tagging strategy**: [ ] `RELEASE.md`
 - **[L114](../README.md?plain=1#L114): Going cloud with EKS and how to deploy the application to EKS**: [ ] doc (EKS, NLB via `gateway.serviceType: LoadBalancer`)
 - **[L115](../README.md?plain=1#L115): How to allow teams from across the world to pull the image fast using AWS solutions**: [ ] doc (ECR cross-region replication / pull-through cache)

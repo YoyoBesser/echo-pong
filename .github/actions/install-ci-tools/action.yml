@@ -10,9 +10,6 @@ outputs:
   k8s-version:
     description: Kubernetes version for kubeconform schemas, minikube and kubectl.
     value: ${{ steps.pins.outputs.k8s-version }}
-  registry-image:
-    description: Throwaway local registry image for the trivy govulncheck plugin.
-    value: ${{ steps.pins.outputs.registry-image }}
 
 runs:
   using: composite
@@ -36,7 +33,6 @@ runs:
         minikube=v1.39.0                 # latest: https://github.com/kubernetes/minikube/releases (checked 2026-10-21)
         trivy=v0.76.0                    # latest: https://github.com/aquasecurity/trivy/releases (checked 2026-10-21)
         trivy-plugin-govulncheck=v0.1.4  # latest: https://github.com/DataDog/trivy-plugin-govulncheck/releases (checked 2026-10-21)
-        registry-image=registry:3.1.2    # latest: https://github.com/distribution/distribution/releases (checked 2026-10-21)
         uv=0.13.4                        # latest: https://github.com/astral-sh/uv/releases (checked 2026-10-21)
         actionlint=v1.7.12               # latest: https://github.com/rhysd/actionlint/releases (checked 2026-10-21)
         k8s-version=1.37.0               # newest in kubeconform schemas + minikube 'stable'; dl.k8s.io stable is v1.37.1 (checked 2026-10-21)
