@@ -1,0 +1,84 @@
+name: Image cleanup
+
+# GHCR retention policy, weekly + manual (dry run by default). See docs/CI.md#image-cleanup
+on:
+  schedule:
+    - cron: "17 3 * * 1"  # Mondays 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: List what would be deleted, delete nothing.
+        type: boolean
+        default: true
+      max-age-days:
+        description: Delete per-commit images older than this.
+        type: number
+        default: 14
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cleanup
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+      branch-slug: ${{ steps.meta.outputs.branch-slug }}
+      image: ${{ steps.meta.outputs.image }}
+      registry: ${{ steps.meta.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+        # Unset on GitHub; act.sh points it at a local registry. See docs/LOCAL-TESTING.md#act-wrapper
+        with:
+          image: ${{ vars.CI_IMAGE }}
+
+  cleanup:
+    needs: metadata
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE: ${{ needs.metadata.outputs.image }}
+      # Scheduled runs are live; manual runs follow the dry-run input.
+      DRY_RUN: ${{ github.event_name != 'schedule' && inputs.dry-run }}
+      MAX_AGE_DAYS: ${{ inputs.max-age-days || 14 }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      # Index manifests are read to protect their platform manifests. See docs/CI.md#image-cleanup
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
+        with:
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: github
+      - name: prune GHCR versions
+        run: |
+          set -euo pipefail
+          args=(--image "$IMAGE" --repo "$GITHUB_REPOSITORY" --max-age-days "$MAX_AGE_DAYS")
+          [[ "$DRY_RUN" == true ]] || args+=(--live)
+          uv run --locked --project .github python .github/scripts/ghcr_cleanup.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [cleanup]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: cleanup

@@ -25,7 +25,7 @@ Status: `todo` / `doing` / `done`.
 | 10 | L64 | Later | — |
 | 11 | L84 | Later | — |
 | 12 | L84 | Later | — |
-| 13 | L94, L116 | Separate cleanup workflow | todo |
+| 13 | L94, L116 | Separate cleanup workflow | done |
 | 14 | L101, L103 | Later | — |
 | 15 | L90, L108 | Later | — |
 | 16 | L91, L109 | Later | — |

@@ -108,7 +108,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L90](../README.md?plain=1#L90)–[L94](../README.md?plain=1#L94): Architecture decisions, Scaling strategy, Cloud deployment considerations, Security measures, Maintaining image versions and tags and removing old ones**
   - [x] Per-area reference docs (`CI.md`, `CONTAINER.md`, `HELM.md`, `LOCAL-TESTING.md`), [CHANGELOG.md](CHANGELOG.md) per PR
   - [ ] Docs for scaling (HPA), security, EKS, versioning and image retention
-  - [ ] Scheduled GHCR cleanup of old/untagged images
+  - [x] Weekly GHCR cleanup (`cleanup.yml`): keeps releases, recent commits, live-branch caches and index children; dry-run on demand ([CI.md#image-cleanup](CI.md#image-cleanup))
 
 ## Deliverables
 
@@ -134,4 +134,4 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L113](../README.md?plain=1#L113): The versioning and tagging strategy**: [ ] `RELEASE.md`
 - **[L114](../README.md?plain=1#L114): Going cloud with EKS and how to deploy the application to EKS**: [ ] doc (EKS, NLB via `gateway.serviceType: LoadBalancer`)
 - **[L115](../README.md?plain=1#L115): How to allow teams from across the world to pull the image fast using AWS solutions**: [ ] doc (ECR cross-region replication / pull-through cache)
-- **[L116](../README.md?plain=1#L116): How to manage older and stale versions of the application**: [ ] doc + scheduled cleanup (see L94)
+- **[L116](../README.md?plain=1#L116): How to manage older and stale versions of the application**: [x] scheduled cleanup ([CI.md#image-cleanup](CI.md#image-cleanup)); [ ] strategy doc

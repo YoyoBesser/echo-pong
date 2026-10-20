@@ -119,7 +119,7 @@ Every CI run pushes to `ghcr.io/<owner>/<repo>` (lowercased by [`gather-metadata
 
 `branch-slug` is the branch lowercased, with runs of characters outside `[a-z0-9._-]` replaced by `-`, so `feat/yonatan.besser/home-assignment-init` becomes `feat-yonatan.besser-home-assignment-init`. Provenance attestations are off for CI images (`provenance: false`). Signing and SBOMs belong to the release workflow.
 
-Pushing needs `packages: write`, granted only to `build`. `e2e-tests` gets `packages: read`. PRs from forks get a read-only `GITHUB_TOKEN`, so they can't push. This repo's PRs come from branches in the same repo. Per-commit tags pile up, so they need a retention policy (README L94, see [TASKS.md](TASKS.md)).
+Pushing needs `packages: write`, granted only to `build`. `e2e-tests` gets `packages: read`. PRs from forks get a read-only `GITHUB_TOKEN`, so they can't push. This repo's PRs come from branches in the same repo. Per-commit tags pile up. The [cleanup workflow](#image-cleanup) prunes them.
 
 The registry is overridable: workflows pass `vars.CI_IMAGE` to `gather-metadata`, which outputs `image` and its `registry` host for `docker/login-action`. It's unset on GitHub. Locally, [act.sh](LOCAL-TESTING.md#act-wrapper) points it at a local registry.
 
@@ -308,3 +308,26 @@ README L56. **Status: TODO**, as a placeholder step after `minikube e2e` in each
 Intended design: on the minikube cluster the e2e already deploys, start a loop that polls `/health` and `/ping` (with the token) through the Gateway, every 100 ms. Meanwhile, `helm upgrade` with a changed pod template (e.g. a `rollout-id` annotation) so every pod is replaced. Fail on any non-2xx response or connection error, and record the request count and failures in the summary.
 
 It passes only once [HELM.md#zero-downtime](HELM.md#zero-downtime) is done: rolling-update settings, PDB, and graceful shutdown in the app.
+
+## Image cleanup
+
+README L94 ("Maintaining image versions and tags and removing old ones") and L116 ("manage older and stale versions"). [`cleanup.yml`](../.github/workflows/cleanup.yml) applies the retention policy to `ghcr.io/<owner>/<repo>`, using [`ghcr_cleanup.py`](../.github/scripts/ghcr_cleanup.py):
+
+| Version | Kept when | Deleted when |
+|---|---|---|
+| `vX.Y.Z` release tag | always | never |
+| `<sha>` commit image | younger than `max-age-days` (14) | older |
+| `<branch-slug>-cache` | the branch still exists (`main-cache` always does) | the branch is gone |
+| untagged | it's a platform manifest of a kept index | otherwise |
+| any other tag | always (unknown, so kept to be safe) | never |
+
+GHCR lists each per-arch manifest of a multi-arch index as its own untagged version. So deleting "all untagged" would break every kept multi-arch image. The script reads each kept index (`docker buildx imagetools inspect --raw`) and protects its children. Children of a deleted index become unprotected and go in the same run.
+
+Branch slugs are computed with the same rule as `gather-metadata`'s `branch-slug`, and tests pin the two together.
+
+Triggers:
+
+- **Weekly** (Mondays 03:17 UTC): live.
+- **Manual** (`workflow_dispatch`): `dry-run` (default `true`) only lists what would be deleted. `max-age-days` overrides the 14-day window.
+
+Every run writes a keep/delete table, with the reason for each version, to the run summary. Only the `cleanup` job gets `packages: write`. Scheduled and manual runs only start once the workflow is on `main`. Do a manual dry run before the first scheduled one. The script needs `gh` and the GitHub Packages API, so it doesn't run under act. Locally, it needs a token with `read:packages` (`gh auth refresh -s read:packages,delete:packages`).
