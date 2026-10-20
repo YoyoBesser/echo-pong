@@ -15,9 +15,13 @@ import (
 const startupTimeout = 45 * time.Second
 
 func TestAPI(t *testing.T) {
-	id := createContainer(t, []string{"-e", secretEnv, "-p", "127.0.0.1::8080"})
-	mustDocker(t, "start", id)
-	base := "http://" + mustDocker(t, "port", id, "8080/tcp")
+	base := baseURL
+	if base == "" {
+		requireImage(t)
+		id := createContainer(t, []string{"-e", secretEnv, "-p", "127.0.0.1::8080"})
+		mustDocker(t, "start", id)
+		base = "http://" + mustDocker(t, "port", id, "8080/tcp")
+	}
 	waitHealthy(t, base)
 
 	cases := []struct {

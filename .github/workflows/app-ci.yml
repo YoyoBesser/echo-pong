@@ -42,7 +42,7 @@ jobs:
       - uses: ./.github/actions/install-ci-tools
         with:
           suite: app
-      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail-lint
+      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail
       - name: golangci-lint
         continue-on-error: true
         working-directory: src
@@ -118,6 +118,40 @@ jobs:
       - name: go test
         working-directory: src
         run: go test -tags e2e -count=1 -v -run "^Test${SUITE}\$" ./test/e2e
+
+  # API e2e against a live minikube deploy, parallel to e2e. See docs/CI.md#minikube-e2e
+  minikube-e2e:
+    name: minikube-e2e (${{ matrix.arch }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+      E2E_IMAGE: echo-pong:ci
+    steps:
+      - uses: actions/checkout@v7
+      - id: tools
+        uses: ./.github/actions/install-ci-tools
+        with:
+          suite: minikube
+      - uses: actions/download-artifact@v8
+        with:
+          name: image-${{ matrix.arch }}
+      - name: docker load
+        run: gunzip -c "image-$ARCH.tar.gz" | docker load
+      # TODO: make blocking once the chart exists. See docs/CI.md#soft-fail
+      - name: deploy + API e2e
+        continue-on-error: true
+        env:
+          K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+        run: src/test/e2e/minikube-e2e.sh
 
   scan:
     needs: [metadata, build]

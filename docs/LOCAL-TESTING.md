@@ -52,3 +52,17 @@ cd src && E2E_IMAGE=echo-pong:ci go test -tags e2e -count=1 -v -run '^TestAPI$' 
 On Apple silicon, `--platform linux/amd64` builds and runs the amd64 image under emulation. It's slower, but it works.
 
 The tests pass the secret with `docker cp` into a created container, never a bind mount. Under act, the docker CLI runs in a job container but talks to the host daemon, so a bind-mount path from the job container doesn't exist on the host. `docker cp` streams the file through the CLI, so it works the same everywhere.
+
+## Minikube e2e
+
+Runs the same flow as CI's [minikube e2e](CI.md#minikube-e2e) job. Needs Docker, `minikube`, `helm`, `kubectl` and Go.
+
+```sh
+docker buildx build --platform linux/arm64 --load -t echo-pong:ci src/
+src/test/e2e/minikube-e2e.sh                          # minikube default k8s version
+K8S_VERSION=1.35.0 src/test/e2e/minikube-e2e.sh       # match CI's pin
+KEEP_CLUSTER=1 src/test/e2e/minikube-e2e.sh           # leave cluster up to poke at it
+CHART_REF=./helm/echo-pong src/test/e2e/minikube-e2e.sh  # test the in-repo chart instead of the latest release
+```
+
+Profile `echo-pong-e2e` by default (`MINIKUBE_PROFILE` overrides it). Run the script directly, not through act: minikube under act would publish the API server port on the host daemon, which the act job container can't reach.

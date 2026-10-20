@@ -8,6 +8,7 @@ import (
 )
 
 func TestCLI(t *testing.T) {
+	requireImage(t)
 	withSecret := []string{"-e", secretEnv}
 
 	cases := []struct {

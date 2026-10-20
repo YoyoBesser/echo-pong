@@ -3,12 +3,12 @@ description: Install the pinned toolchain for one CI suite. All CI tool versions
 
 inputs:
   suite:
-    description: "Which toolchain to install: app (Go, golangci-lint) or helm (helm, kubeconform, kube-linter)."
+    description: "Which toolchain to install: app (Go, golangci-lint), helm (helm, kubeconform, kube-linter) or minikube (Go, helm, minikube, kubectl)."
     required: true
 
 outputs:
   k8s-version:
-    description: Kubernetes version kubeconform validates against (helm suite).
+    description: Kubernetes version for kubeconform schemas, minikube and kubectl.
     value: ${{ steps.pins.outputs.k8s-version }}
 
 runs:
@@ -20,17 +20,18 @@ runs:
       env:
         SUITE: ${{ inputs.suite }}
       run: |
-        case "$SUITE" in app|helm) ;; *) echo "::error::unknown suite '$SUITE' (want app|helm)"; exit 1 ;; esac
+        case "$SUITE" in app|helm|minikube) ;; *) echo "::error::unknown suite '$SUITE' (want app|helm|minikube)"; exit 1 ;; esac
         cat >> "$GITHUB_OUTPUT" <<'EOF'
         golangci-lint=v2.15.0
         helm=v4.3.1
         kubeconform=v0.8.0
         kube-linter=v0.8.3
+        minikube=v1.39.0
         k8s-version=1.35.0
         EOF
 
     # Go version comes from src/go.mod, not a pin here.
-    - if: inputs.suite == 'app'
+    - if: inputs.suite == 'app' || inputs.suite == 'minikube'
       uses: actions/setup-go@v7
       with:
         go-version-file: src/go.mod
@@ -41,7 +42,7 @@ runs:
         version: ${{ steps.pins.outputs.golangci-lint }}
         install-only: true
 
-    - if: inputs.suite == 'helm'
+    - if: inputs.suite == 'helm' || inputs.suite == 'minikube'
       uses: azure/setup-helm@v5
       with:
         version: ${{ steps.pins.outputs.helm }}
@@ -60,3 +61,17 @@ runs:
         curl -fsSL "https://github.com/stackrox/kube-linter/releases/download/$KUBE_LINTER_VERSION/kube-linter-linux$suffix" \
           -o "$bin/kube-linter"
         chmod +x "$bin/kube-linter"
+
+    # kubectl tracks k8s-version, so client and cluster match.
+    - if: inputs.suite == 'minikube'
+      shell: bash
+      env:
+        MINIKUBE_VERSION: ${{ steps.pins.outputs.minikube }}
+        K8S_VERSION: ${{ steps.pins.outputs.k8s-version }}
+      run: |
+        set -euo pipefail
+        arch="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+        bin="$RUNNER_TEMP/ci-tools" && mkdir -p "$bin" && echo "$bin" >> "$GITHUB_PATH"
+        curl -fsSL "https://github.com/kubernetes/minikube/releases/download/$MINIKUBE_VERSION/minikube-linux-$arch" -o "$bin/minikube"
+        curl -fsSL "https://dl.k8s.io/release/v$K8S_VERSION/bin/linux/$arch/kubectl" -o "$bin/kubectl"
+        chmod +x "$bin/minikube" "$bin/kubectl"

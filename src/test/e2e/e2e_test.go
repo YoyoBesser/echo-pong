@@ -15,19 +15,37 @@ import (
 )
 
 const (
-	secret     = "e2e-secret"
 	secretPath = "/tmp/secret"
 	secretEnv  = "SECRET_FILE_PATH=" + secretPath
 )
 
-var image = os.Getenv("E2E_IMAGE")
+// Target: E2E_IMAGE runs containers; E2E_BASE_URL hits a live server instead. See docs/CI.md#e2e-tests
+var (
+	image   = os.Getenv("E2E_IMAGE")
+	baseURL = os.Getenv("E2E_BASE_URL")
+	secret  = envOr("E2E_SECRET", "e2e-secret")
+)
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 func TestMain(m *testing.M) {
-	if image == "" {
-		fmt.Fprintln(os.Stderr, "E2E_IMAGE must name the image under test")
+	if image == "" && baseURL == "" {
+		fmt.Fprintln(os.Stderr, "set E2E_IMAGE (image under test) or E2E_BASE_URL (live server)")
 		os.Exit(1)
 	}
 	os.Exit(m.Run())
+}
+
+func requireImage(t *testing.T) {
+	t.Helper()
+	if image == "" {
+		t.Skip("E2E_IMAGE not set")
+	}
 }
 
 // docker runs a docker CLI command. Stdout and stderr stay separate: emulation warnings go to stderr.

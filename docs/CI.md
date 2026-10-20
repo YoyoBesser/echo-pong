@@ -6,7 +6,7 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests), secret scan, image scan |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests), [minikube e2e](#minikube-e2e), secret scan, image scan |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) |
 
 Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. A chart-only PR doesn't rebuild the image, and an app-only PR doesn't lint the chart.
@@ -55,7 +55,7 @@ Linters: golangci's `standard` set (`errcheck`, `govet`, `ineffassign`, `staticc
 
 ## Tool pins
 
-Every CI tool version lives in one block in [`.github/actions/install-ci-tools`](../.github/actions/install-ci-tools/action.yml). Jobs call it with `suite: app` (Go, golangci-lint) or `suite: helm` (helm, kubeconform, kube-linter), and an unknown suite fails fast. To bump a tool, change one line there.
+Every CI tool version lives in one block in [`.github/actions/install-ci-tools`](../.github/actions/install-ci-tools/action.yml). Jobs call it with `suite: app` (Go, golangci-lint), `suite: helm` (helm, kubeconform, kube-linter) or `suite: minikube` (Go, helm, minikube, kubectl). An unknown suite fails fast. One `k8s-version` pin drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
 
 The Go version is the exception: it comes from `src/go.mod`, so the toolchain matches the module. Actions themselves (`actions/checkout@v7`, ...) are pinned by major tag where they're used.
 
@@ -68,6 +68,8 @@ Native runners keep any target-arch execution (e2e, future scans) unemulated and
 ## E2E tests
 
 [`src/test/e2e`](../src/test/e2e) black-box tests the image. It never imports app code. It only runs the container via the docker CLI and checks exit codes, output and HTTP responses. The `e2e` build tag keeps it out of plain `go test ./...`.
+
+The target is set by env. `E2E_IMAGE` makes the tests start containers themselves. `E2E_BASE_URL` (plus `E2E_SECRET`) points `TestAPI` at an already-running server, and `TestCLI` skips. The same API cases therefore run against a bare container and a [live deploy](#minikube-e2e).
 
 | Suite | Test | Covers |
 |---|---|---|
@@ -96,10 +98,34 @@ The secret file goes in with `docker create` + `docker cp`, not a bind mount (se
 
 Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minimum-two-replicas`) instead of the built-in 3. Two replicas plus a PDB keep a pod serving through a rolling update or a single node drain. README L59 (registry pull) has no static check. It's covered by deploying, not linting.
 
-## Soft-fail lint
+## Soft-fail
 
-Temporary: golangci-lint (`app-ci.yml`) and the four chart checks (`helm-ci.yml`) run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e` run while the existing `main.go` has 11 lint issues and `helm/echo-pong/` is still empty.
+Temporary: golangci-lint (`app-ci.yml`), the four chart checks (`helm-ci.yml`) and the [minikube e2e](#minikube-e2e) deploy step run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e` run while the existing `main.go` has 11 lint issues and `helm/echo-pong/` is still empty.
 
 Step-level (not job-level) keeps the job green so downstream jobs run, while the failed step still shows in the run log.
 
-To make lint blocking again, remove every `continue-on-error` in the lint jobs (`grep -rn continue-on-error .github`) and the TODO comments that link here.
+To make these checks blocking, remove every `continue-on-error` (`grep -rn continue-on-error .github`) and the TODO comments that link here.
+
+## Minikube e2e
+
+`minikube-e2e` runs in parallel with `e2e`, once per arch, on the same native runners and image artifact. It runs only the API suite, but against a live Kubernetes deploy instead of a bare container.
+
+[`src/test/e2e/minikube-e2e.sh`](../src/test/e2e/minikube-e2e.sh) does the whole flow, locally and in CI:
+
+1. `minikube start` (docker driver, `k8s-version` from [Tool pins](#tool-pins)), then `minikube image load` the CI image.
+2. Resolve the chart. The default is the latest release at `oci://ghcr.io/<owner>/charts/echo-pong`. If no release exists yet, it warns and falls back to the in-repo `helm/echo-pong`.
+3. Create the namespace and a Secret holding a random token, then `helm upgrade --install --wait` with the CI image.
+4. `kubectl port-forward` the Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
+5. Delete the cluster on exit (unless `KEEP_CLUSTER=1`).
+
+The latest released chart plus the new image checks that a new app build still works with the chart already in production. Chart changes are covered by [chart lint](#chart-lint).
+
+The values contract the script relies on, which the chart must honour:
+
+| Value | Set to |
+|---|---|
+| `image.repository`, `image.tag` | The CI image (`echo-pong`, `ci`) |
+| `image.pullPolicy` | `Never` (the image is preloaded, not pulled) |
+| `auth.existingSecret` | Name of a Secret with key `token`, mounted as the file `SECRET_FILE_PATH` points to |
+
+The Service is named after the release (`echo-pong`), and its first port is the one forwarded. The script reaches it through `port-forward`, not the Ingress. Exposing it through the Ingress is a later step.

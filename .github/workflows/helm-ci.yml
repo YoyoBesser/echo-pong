@@ -46,7 +46,7 @@ jobs:
         uses: ./.github/actions/install-ci-tools
         with:
           suite: helm
-      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail-lint
+      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail
       - name: helm lint
         continue-on-error: true
         run: helm lint --strict "$CHART"

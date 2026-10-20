@@ -8,7 +8,7 @@
 
 ## CI
 - Lint / vet / test on PRs
-- Make lint blocking: drop `continue-on-error` (`docs/CI.md#soft-fail-lint`)
+- Make lint blocking: drop `continue-on-error` (`docs/CI.md#soft-fail`)
 - `helm lint` + `helm template` validation
 - Build multi-arch image
 - Vulnerability scan; fail on critical/high
