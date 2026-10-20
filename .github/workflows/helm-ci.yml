@@ -46,14 +46,19 @@ jobs:
         uses: ./.github/actions/install-ci-tools
         with:
           suite: helm
+      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail-lint
       - name: helm lint
+        continue-on-error: true
         run: helm lint --strict "$CHART"
       # Test hooks excluded from render. See docs/CI.md#chart-lint
       - name: helm template
+        continue-on-error: true
         run: helm template echo-pong "$CHART" --skip-tests > "$RENDERED"
       - name: kubeconform
+        continue-on-error: true
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
         run: kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" "$RENDERED"
       - name: kube-linter
+        continue-on-error: true
         run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"

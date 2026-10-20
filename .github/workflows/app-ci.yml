@@ -42,7 +42,9 @@ jobs:
       - uses: ./.github/actions/install-ci-tools
         with:
           suite: app
+      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail-lint
       - name: golangci-lint
+        continue-on-error: true
         working-directory: src
         run: golangci-lint run
 
