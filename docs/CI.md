@@ -196,7 +196,7 @@ The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), 
 
 1. `minikube start` (docker driver, `k8s-version` from [Tool pins](#tool-pins)), then `minikube image load` the CI image.
 2. `helm dependency build` the in-repo chart (`CHART_REF` overrides it, e.g. with a released OCI chart).
-3. Create the namespace and the [auth Secret](HELM.md#auth-secret) holding a random token. On a kept cluster, the existing token is reused, because the app reads its secret only at startup.
+3. Create the namespace with [Pod Security Admission](HELM.md#pod-security-admission) `restricted` enforced, and the [auth Secret](HELM.md#auth-secret) holding a random token. On a kept cluster, the existing token is reused, because the app reads its secret only at startup.
 4. `helm upgrade --install --wait` with the CI image and `image.pullPolicy=Never`.
 5. Wait for the Gateway to be `Programmed` and the Envoy proxy pods to be ready. The controller creates them after install, so `helm --wait` doesn't cover them.
 6. `kubectl port-forward` the Envoy proxy Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
@@ -261,8 +261,10 @@ kube-linter only flags fields that are present and wrong. A container with no `s
 |---|---|---|
 | KSV-0001 | `allowPrivilegeEscalation: false` | L49 |
 | KSV-0012 | `runAsNonRoot: true` | L49 |
+| KSV-0020 / KSV-0021 | `runAsUser` / `runAsGroup` > 10000 | L49 |
 | KSV-0014 | `readOnlyRootFilesystem: true` | L53 |
 | KSV-0003 | `capabilities.drop: [ALL]` | L83 |
+| KSV-0030 / KSV-0104 | seccomp `RuntimeDefault` | L83 |
 
 ## Build summary
 

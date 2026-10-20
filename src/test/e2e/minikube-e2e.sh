@@ -39,8 +39,11 @@ if [[ -d "$chart" ]]; then
   helm dependency build "$chart"
 fi
 
-log "create namespace + auth secret"
+log "create namespace (PSA restricted) + auth secret"
 kubectl --context "$PROFILE" create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl --context "$PROFILE" apply -f -
+# API server rejects pods that drop the hardened securityContext. See docs/HELM.md#pod-security-admission
+kubectl --context "$PROFILE" label namespace "$NAMESPACE" --overwrite \
+  pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest
 # Reuse the token on a kept cluster: the app reads the secret file only at startup.
 token="$(kc get secret "$AUTH_SECRET" -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)"
 if [[ -z "$token" ]]; then

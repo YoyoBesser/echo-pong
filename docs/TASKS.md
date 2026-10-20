@@ -28,6 +28,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] kube-linter: `run-as-non-root`, `privileged-container`, `privilege-escalation-container`
   - [x] Blocking gate: trivy config KSV-0001 (`allowPrivilegeEscalation`), KSV-0012 (`runAsNonRoot`) on the rendered chart ([CI.md#trivy-config](CI.md#trivy-config))
   - [x] Chart `securityContext`: `runAsNonRoot`, UID 65532, `allowPrivilegeEscalation: false`, drop `ALL` caps, seccomp `RuntimeDefault` ([HELM.md#security-context](HELM.md#security-context))
+  - [x] Pinned: 8-check blocking trivy gate + PSA `restricted` enforced in minikube e2e ([HELM.md#pod-security-admission](HELM.md#pod-security-admission))
 - **[L50](../README.md?plain=1#L50): All images must pass security scans**
   - [x] trivy scans each arch image (vuln + image misconfig), Go CVEs filtered by `trivy-plugin-govulncheck` ([CI.md#image-scan](CI.md#image-scan), soft-fail for now)
   - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), soft-fail for now)

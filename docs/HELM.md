@@ -43,7 +43,18 @@ The pod and container run locked down by default (`podSecurityContext`, `securit
 | `capabilities.drop` | `[ALL]` | L83 |
 | `seccompProfile.type` | `RuntimeDefault` | L83 |
 
-A regression is caught by the blocking `trivy config` gate in helm-ci ([CI.md#trivy-config](CI.md#trivy-config)), which fails if any of the first four rows' fields go missing or unsafe, whether from a template edit, a values override or a deleted block. kube-linter alone can't do this, because it passes a container that sets nothing. The minikube e2e runs the app with these settings.
+Pinned in two layers, so removing or weakening any of it fails CI:
+
+1. **Static, at PR time:** the blocking `trivy config` gate in helm-ci ([CI.md#trivy-config](CI.md#trivy-config)) checks every row above on the rendered chart, whether it's broken by a template edit, a values override or a deleted block. kube-linter alone can't do this, because it passes a container that sets nothing.
+2. **Runtime, at deploy:** [Pod Security Admission](#pod-security-admission) `restricted` on the e2e namespace. The API server itself refuses pods that drop the settings.
+
+## Pod Security Admission
+
+The [minikube e2e](CI.md#minikube-e2e) labels its namespace `pod-security.kubernetes.io/enforce=restricted` (with `enforce-version=latest`) before installing. Kubernetes' built-in admission then rejects any pod that isn't non-root, without privilege escalation, with capabilities dropped to `ALL` and seccomp `RuntimeDefault`. If the chart's [security context](#security-context) regresses, the pods never start and the e2e fails. A bare pod with no securityContext is refused with `violates PodSecurity "restricted:latest"`.
+
+Everything in the release runs under `restricted`: the app and the Envoy Gateway controller, certgen job and proxy. PSA doesn't check `readOnlyRootFilesystem`; the trivy gate covers that.
+
+On a real cluster (EKS), the platform should label app namespaces the same way. The chart doesn't create its namespace, so it can't set the label itself.
 
 ## Zero downtime
 
