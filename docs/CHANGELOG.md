@@ -58,7 +58,7 @@ Every PR entry requires:
 
 ---
 
-### 2026-10-20 - [#1](https://github.com/YoyoBesser/echo-pong/pull/1) - Home assignment init: CI skeleton, container, chart, e2e
+### 2026-10-21 - [#1](https://github.com/YoyoBesser/echo-pong/pull/1) - Home assignment init: CI/CD skeleton, container, chart, e2e and security scans
 
 **Intent:** Put CI guardrails in place before touching app code.
 
