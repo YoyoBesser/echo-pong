@@ -36,10 +36,16 @@ jobs:
     steps:
       - run: echo "TODO build + push multi-arch image to GHCR under the commit SHA (${{ needs.metadata.outputs.short-sha }})"
 
-  # Release gate: same scans as CI, blocking. Nothing is tagged vX.Y.Z unless both pass. See docs/CI.md#reusable-scans
+  # Release gate: same scans as CI, blocking. Nothing is tagged vX.Y.Z unless all pass. See docs/CI.md#reusable-scans
   scan-source:
     needs: metadata
     uses: ./.github/workflows/scan-source.yml
+    with:
+      blocking: true
+
+  scan-repo:
+    needs: metadata
+    uses: ./.github/workflows/scan-repo.yml
     with:
       blocking: true
 
@@ -55,7 +61,7 @@ jobs:
       blocking: true
 
   publish:
-    needs: [metadata, scan-source, scan-image]
+    needs: [metadata, scan-source, scan-repo, scan-image]
     runs-on: ubuntu-latest
     steps:
       - run: echo "TODO retag ${{ needs.metadata.outputs.short-sha }} as ${{ github.ref_name }}, sign image + attach SBOM"
@@ -75,11 +81,11 @@ jobs:
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:
-    needs: [metadata, image, scan-source, scan-image, publish, binaries, github-release]
+    needs: [metadata, image, scan-source, scan-repo, scan-image, publish, binaries, github-release]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - uses: ./.github/actions/summarize-results
         with:
-          order: scan-source scan-image
+          order: scan-source scan-repo scan-image

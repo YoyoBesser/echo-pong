@@ -8,8 +8,7 @@ CI is split by what changed:
 |---|---|---|
 | [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
-| [`github-ci.yml`](../.github/workflows/github-ci.yml) | `.github/**` | [actionlint, ruff, pytest at 100% coverage](#github-ci), [summary](#build-summary) |
-| [`docs-ci.yml`](../.github/workflows/docs-ci.yml) | every change (no path filter) | [doc links](#doc-links), [summary](#build-summary) |
+| [`common-ci.yml`](../.github/workflows/common-ci.yml) | every change (no path filter) | [actionlint, ruff, pytest at 100% coverage, doc links](#common-ci), [repo secret scan](#repo-scan), [summary](#build-summary) |
 
 Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. App CI also runs on chart changes, because the minikube e2e deploys the in-repo chart. An app-only PR doesn't lint the chart.
 
@@ -75,11 +74,12 @@ Every CI tool version lives in one block in [`.github/actions/install-ci-tools`]
 | `helm` | helm, kubeconform, kube-linter, trivy |
 | `minikube` | Go, helm, minikube, kubectl |
 | `scan` | trivy + `trivy-plugin-govulncheck` |
+| `repo` | trivy, gitleaks |
 | `github` | uv (then `uv sync --locked` in `.github/`), actionlint |
 
 An unknown suite fails fast. Binaries, including golangci-lint and helm, are fetched from upstream releases and checked against the published SHA-256 checksums, rather than through their setup actions, so they can be [cached](#tool-cache). One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
 
-Exceptions: the Go version comes from `src/go.mod`, so the toolchain matches the module. Python and its dev tools come from `.github/.python-version`, `pyproject.toml` and `uv.lock` (see [GitHub CI](#github-ci)). Actions are pinned by major tag where they're used (`astral-sh/setup-uv` by exact tag, since it publishes no major tags).
+Exceptions: the Go version comes from `src/go.mod`, so the toolchain matches the module. Python and its dev tools come from `.github/.python-version`, `pyproject.toml` and `uv.lock` (see [Common CI](#common-ci)). Actions are pinned by major tag where they're used (`astral-sh/setup-uv` by exact tag, since it publishes no major tags).
 
 Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so it's clear when it was last compared to upstream. The pins block strips these comments before writing `$GITHUB_OUTPUT`. All pins were on their latest release as of 2026-10-21, except `k8s-version` (see above) and the Go 1.24 toolchain, which comes from the original `go.mod`.
 
@@ -220,6 +220,7 @@ Security scans are defined once, as reusable workflows (`on: workflow_call`), an
 |---|---|---|
 | [`scan-source.yml`](../.github/workflows/scan-source.yml) | `scan-source` | gosec (SAST), govulncheck (SCA). See [SAST and SCA](#sast-and-sca) |
 | [`scan-image.yml`](../.github/workflows/scan-image.yml) | `scan-image (amd64)`, `scan-image (arm64)` | trivy vuln + image misconfig, govulncheck-filtered. See [Image scan](#image-scan) |
+| [`scan-repo.yml`](../.github/workflows/scan-repo.yml) | `scan-repo` | trivy fs + gitleaks secrets. See [Repo scan](#repo-scan) |
 
 Both take a `blocking` input. With `true`, a finding fails the job. With `false`, the step runs under `continue-on-error`, so the finding shows as `⚠️` in the [summary](#build-summary) but nothing fails.
 
@@ -227,6 +228,15 @@ Both take a `blocking` input. With `true`, a finding fails the job. With `false`
 - `release.yml` calls them with `blocking: true` as the release gate (README L51, L87). `publish`, the only job that would tag `vX.Y.Z`, `needs:` both scans. A finding means no version tag, so nothing is released. `scan-image` scans the same `<image>:<sha>` digest that `publish` will retag, so what's released is exactly what was scanned.
 
 Results recorded inside a called workflow land in the caller's run, so the caller's `summary` job picks them up like any other job.
+
+## Repo scan
+
+README L52 ("No secrets in codebase") is checked repo-wide by the reusable [`scan-repo.yml`](../.github/workflows/scan-repo.yml), called from [Common CI](#common-ci) on every commit and from release, both blocking:
+
+- `trivy fs --scanners secret` on the working tree: every tracked and untracked file in the checkout.
+- `gitleaks git` on the full git history (`fetch-depth: 0`), so a secret that was committed and later deleted still fails. Findings are `--redact`ed in the log.
+
+It's blocking from the start, because both were clean on the repo when added (15 commits). A planted fake key fails both. To allow a known false positive, add a `.gitleaksignore` fingerprint or a trivy `--skip-files` entry, with a comment saying why.
 
 ## Image scan
 
@@ -263,12 +273,16 @@ Every workflow's run summary ends with a **Tests** table and a **Security** tabl
 
 Outcomes come from `steps.<id>.outcome` and `.conclusion` inside the job. The GitHub API can't be used instead: it reports a failed `continue-on-error` step as `success`, which would hide every [soft-fail](#soft-fail). Naming and kind rules live in [.github/workflows/AGENTS.md](../.github/workflows/AGENTS.md).
 
-## GitHub CI
+## Common CI
 
-`github-ci.yml` is CI for CI. It runs on any `.github/**` change:
+`common-ci.yml` holds the repo-wide checks. It has no path filter, so it runs on every PR commit and every push to main:
 
 - `lint` job: `actionlint (workflows)` (actionlint also runs shellcheck on `run:` blocks), `ruff check (lint)` and `ruff format (style)`.
 - `test` job: `pytest (100% coverage)`.
+- `doc-links` job: [doc links](#doc-links).
+- `scan-repo` job: [repo-wide secret scan](#repo-scan), blocking.
+
+The Python checks would only need `.github/**`. They run on every commit anyway, because they take about a minute and one unfiltered workflow is simpler than per-job path filters.
 
 The Python under `.github/` ([`summarize-results/render.py`](../.github/actions/summarize-results/render.py), [`scripts/check_doc_links.py`](../.github/scripts/check_doc_links.py)) is a uv project in [`.github/pyproject.toml`](../.github/pyproject.toml):
 
@@ -276,11 +290,11 @@ The Python under `.github/` ([`summarize-results/render.py`](../.github/actions/
 - Dev tools: ruff, pytest and pytest-cov, pinned in the `dev` dependency group and locked in [`.github/uv.lock`](../.github/uv.lock). CI runs `uv sync --locked`, so a stale lock fails instead of resolving silently.
 - Coverage: `--cov-branch --cov-fail-under=100` in `pyproject.toml`. Line and branch coverage both have to reach 100%. Only the `if __name__ == "__main__"` guard is excluded.
 
-To run locally, see [LOCAL-TESTING.md#github-ci](LOCAL-TESTING.md#github-ci).
+To run locally, see [LOCAL-TESTING.md#common-ci](LOCAL-TESTING.md#common-ci).
 
 ### Doc links
 
-[`check_doc_links.py`](../.github/scripts/check_doc_links.py) enforces the [AGENTS.md](../AGENTS.md) comment rule on every tracked file (`git ls-files`). It runs in `docs-ci.yml` on every PR commit and every push to main, with no path filter, because doc links live in workflows, Dockerfiles, Go, shell and Helm files alike:
+[`check_doc_links.py`](../.github/scripts/check_doc_links.py) enforces the [AGENTS.md](../AGENTS.md) comment rule on every tracked file (`git ls-files`). It runs in [Common CI](#common-ci) on every commit, with no path filter, because doc links live in workflows, Dockerfiles, Go, shell and Helm files alike:
 
 - **Code and config** (anything not `.md`): every `<path>.md#<anchor>` must be relative to the repo root (`docs/CI.md#soft-fail`, never `../docs/...` or `./...`), the file must exist, and the anchor must match a heading in it.
 - **Markdown**: every `[text](path#anchor)` link is resolved relative to the linking file, the way GitHub renders it, and the anchor must match a heading. `README.md?plain=1#L49` line links must point at a line that exists. External URLs are skipped.

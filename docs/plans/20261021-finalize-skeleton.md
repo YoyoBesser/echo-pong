@@ -15,7 +15,7 @@ Status: `todo` / `doing` / `done`.
 |---|---|---|---|
 | 1 | L49, L53, L83 | Implement now | done |
 | 2 | L51 | Refactor scanning into reusable pieces, used by CI and release | done |
-| 3 | L52 | `github-ci.yml` becomes `common-ci.yml`, with repo-wide scanning | todo |
+| 3 | L52 | `github-ci.yml` becomes `common-ci.yml`, with repo-wide scanning | done |
 | 4 | L56 | TODO spot in chart | todo |
 | 5 | L56 | TODO spot for rollout verification | todo |
 | 6 | L56 | Later | — |

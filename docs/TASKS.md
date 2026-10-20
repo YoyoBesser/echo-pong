@@ -40,7 +40,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Token only in an out-of-band Secret, never in values ([HELM.md#auth-secret](HELM.md#auth-secret))
   - [x] e2e generates a random token per run
   - [x] kube-linter: `env-var-secret`, `read-secret-from-env-var`
-  - [ ] Secret scanning in CI (`secret-scan` placeholder)
+  - [x] Repo-wide secret scan on every commit, blocking: trivy fs (working tree) + gitleaks (git history) ([CI.md#repo-scan](CI.md#repo-scan)); also in the release gate
 - **[L53](../README.md?plain=1#L53): Proper filesystem isolation**
   - [x] Distroless image; `.dockerignore` allowlist (`go.mod`, `*.go` only)
   - [x] Secret volume mounted `readOnly`
@@ -96,7 +96,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] README-traced kube-linter policy (soft-fail for now, [CI.md#soft-fail](CI.md#soft-fail))
   - [ ] Chart passes the policy: resources, HPA, ServiceAccount, `values-<env>.yaml`
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
-  - [x] `app-ci.yml` + `helm-ci.yml` + `github-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
+  - [x] `app-ci.yml` + `helm-ci.yml` + `common-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
   - [x] Tests + Security summary tables in every run ([CI.md#build-summary](CI.md#build-summary))
   - [x] Doc links checked in CI: repo-root relative, anchors resolve ([CI.md#doc-links](CI.md#doc-links))
   - [x] Every tool/action pin on latest, annotated with source + check date ([CI.md#tool-pins](CI.md#tool-pins))

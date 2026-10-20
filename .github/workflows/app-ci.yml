@@ -79,12 +79,6 @@ jobs:
     steps:
       - run: echo "TODO go test"
 
-  secret-scan:
-    needs: metadata
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "TODO secret scanning"
-
   # One buildx build, both arches, pushed as multi-arch <sha>. See docs/CI.md#build
   build:
     needs: [metadata, lint, test]

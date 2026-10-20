@@ -1,4 +1,4 @@
-# Python tooling for .github/ scripts; uv-managed, Python from .python-version. See docs/CI.md#github-ci
+# Python tooling for .github/ scripts; uv-managed, Python from .python-version. See docs/CI.md#common-ci
 [project]
 name = "echo-pong-ci"
 version = "0.0.0"

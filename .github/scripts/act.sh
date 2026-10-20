@@ -11,7 +11,7 @@ usage() {
   cat <<'USAGE'
 usage: .github/scripts/act.sh <workflow> [job] [--pr] [--arch amd64|arm64] [-- <extra act args>]
 
-  workflow  file name in .github/workflows/ without .yml (app-ci, helm-ci, github-ci, release, cd)
+  workflow  file name in .github/workflows/ without .yml (app-ci, helm-ci, common-ci, release, cd)
   job       run only this job; act runs its needs first
   --pr      simulate pull_request (head = current branch + HEAD) instead of push
   --arch    run only that matrix arch

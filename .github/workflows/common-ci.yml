@@ -1,14 +1,11 @@
-name: GitHub CI
+name: Common CI
 
-# CI for CI: workflows, actions and their Python. See docs/CI.md#github-ci
+# Repo-wide checks on every commit (no path filter). See docs/CI.md#common-ci
 on:
   pull_request:
     branches: [main]
-    paths: &paths
-      - .github/**
   push:
     branches: [main]
-    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -76,7 +73,7 @@ jobs:
       - uses: ./.github/actions/install-ci-tools
         with:
           suite: github
-      # Coverage floor is 100% (pyproject.toml). See docs/CI.md#github-ci
+      # Coverage floor is 100% (pyproject.toml). See docs/CI.md#common-ci
       - id: pytest
         name: pytest (100% coverage)
         working-directory: .github
@@ -87,13 +84,38 @@ jobs:
           rows: |
             tests|pytest (100% coverage)|${{ steps.pytest.outcome }}|${{ steps.pytest.conclusion }}
 
+  doc-links:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: github
+      # Code links repo-root relative, every anchor a real heading. See docs/CI.md#doc-links
+      - id: doc-links
+        name: doc links (anchors)
+        run: uv run --locked --project .github python .github/scripts/check_doc_links.py
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|doc links (anchors)|${{ steps.doc-links.outcome }}|${{ steps.doc-links.conclusion }}
+
+  # Secrets anywhere in the repo or its history (README L52). See docs/CI.md#repo-scan
+  scan-repo:
+    needs: metadata
+    uses: ./.github/workflows/scan-repo.yml
+    with:
+      blocking: true
+
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:
-    needs: [lint, test]
+    needs: [lint, test, doc-links, scan-repo]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - uses: ./.github/actions/summarize-results
         with:
-          order: lint test
+          order: lint test doc-links scan-repo

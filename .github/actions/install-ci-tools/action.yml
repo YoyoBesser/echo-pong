@@ -3,7 +3,7 @@ description: Install the pinned toolchain for one CI suite, cached across runs. 
 
 inputs:
   suite:
-    description: "Which toolchain to install: app (Go, golangci-lint, staticcheck, gosec, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin) or github (uv + locked Python deps, actionlint)."
+    description: "Which toolchain to install: app (Go, golangci-lint, staticcheck, gosec, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks) or github (uv + locked Python deps, actionlint)."
     required: true
 
 outputs:
@@ -20,7 +20,7 @@ runs:
       env:
         SUITE: ${{ inputs.suite }}
       run: |
-        case "$SUITE" in app|helm|minikube|scan|github) ;; *) echo "::error::unknown suite '$SUITE' (want app|helm|minikube|scan|github)"; exit 1 ;; esac
+        case "$SUITE" in app|helm|minikube|scan|repo|github) ;; *) echo "::error::unknown suite '$SUITE' (want app|helm|minikube|scan|repo|github)"; exit 1 ;; esac
         # Comments stripped before writing outputs; the hash keys the tools cache.
         pins="$(sed -e 's/[[:space:]]*#.*$//' -e '/^$/d' <<'EOF'
         golangci-lint=v2.15.0            # latest: https://github.com/golangci/golangci-lint/releases (checked 2026-10-21)
@@ -33,6 +33,7 @@ runs:
         minikube=v1.39.0                 # latest: https://github.com/kubernetes/minikube/releases (checked 2026-10-21)
         trivy=v0.76.0                    # latest: https://github.com/aquasecurity/trivy/releases (checked 2026-10-21)
         trivy-plugin-govulncheck=v0.1.4  # latest: https://github.com/DataDog/trivy-plugin-govulncheck/releases (checked 2026-10-21)
+        gitleaks=v8.30.1                 # latest: https://github.com/gitleaks/gitleaks/releases (checked 2026-10-21)
         uv=0.13.4                        # latest: https://github.com/astral-sh/uv/releases (checked 2026-10-21)
         actionlint=v1.7.12               # latest: https://github.com/rhysd/actionlint/releases (checked 2026-10-21)
         k8s-version=1.37.0               # newest in kubeconform schemas + minikube 'stable'; dl.k8s.io stable is v1.37.1 (checked 2026-10-21)
@@ -144,7 +145,7 @@ runs:
         key: minikube-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.minikube }}-k8s-${{ steps.pins.outputs.k8s-version }}
 
     # Checksum-verified release tarballs, no third-party action. See docs/CI.md#image-scan
-    - if: (inputs.suite == 'scan' || inputs.suite == 'helm') && steps.tools-cache.outputs.cache-hit != 'true'
+    - if: (inputs.suite == 'scan' || inputs.suite == 'helm' || inputs.suite == 'repo') && steps.tools-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         TRIVY_VERSION: ${{ steps.pins.outputs.trivy }}
@@ -175,7 +176,20 @@ runs:
         key: trivy-${{ runner.os }}-${{ steps.pins.outputs.date }}
         restore-keys: trivy-${{ runner.os }}-
 
-    # Python + ruff/pytest versions come from .github/.python-version and uv.lock. See docs/CI.md#github-ci
+    - if: inputs.suite == 'repo' && steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GITLEAKS_VERSION: ${{ steps.pins.outputs.gitleaks }}
+      run: |
+        set -euo pipefail
+        arch="$(echo "$CI_TOOLS_ARCH" | sed 's/amd64/x64/')"
+        v="${GITLEAKS_VERSION#v}" tgz="gitleaks_${v}_linux_${arch}.tar.gz"
+        url="https://github.com/gitleaks/gitleaks/releases/download/$GITLEAKS_VERSION"
+        cd "$RUNNER_TEMP"
+        curl -fsSLO "$url/$tgz" && curl -fsSL "$url/gitleaks_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
+        tar -xzf "$tgz" -C "$CI_TOOLS_BIN" gitleaks
+
+    # Python + ruff/pytest versions come from .github/.python-version and uv.lock. See docs/CI.md#common-ci
     - if: inputs.suite == 'github'
       uses: astral-sh/setup-uv@v10.3.0  # latest: https://github.com/astral-sh/setup-uv/releases (checked 2026-10-21) (no floating major tags upstream)
       with:

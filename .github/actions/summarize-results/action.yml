@@ -16,7 +16,7 @@ runs:
         pattern: ci-results-*
         path: ${{ runner.temp }}/ci-results
         merge-multiple: true
-    # uv + Python from .github/.python-version, same as github-ci. See docs/CI.md#github-ci
+    # uv + Python from .github/.python-version, same as common-ci. See docs/CI.md#common-ci
     - uses: ./.github/actions/install-ci-tools
       with:
         suite: github

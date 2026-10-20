@@ -81,9 +81,9 @@ cd src && E2E_IMAGE=echo-pong:bin go test -tags e2e -count=1 -v ./test/e2e
 
 Use `BASE=ubuntu:latest` for glibc, and `--platform linux/amd64` on both builds for x86 under emulation. `dist/` is gitignored.
 
-## GitHub CI
+## Common CI
 
-Same checks as CI's [GitHub CI](CI.md#github-ci):
+Same checks as CI's [Common CI](CI.md#common-ci), except the secret scan:
 
 ```sh
 actionlint
