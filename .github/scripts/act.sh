@@ -73,6 +73,9 @@ args=(
   # act clones remote actions with it; pushes still go to the local registry.
   -s "GITHUB_TOKEN=$(gh auth token)"
   --artifact-server-path "$tmp/artifacts"
+  # Job containers can't reach the host's LAN IP here; reach act's cache server via the Docker host gateway.
+  --cache-server-addr kubernetes.docker.internal
+  --container-options "--add-host=kubernetes.docker.internal:host-gateway"
 )
 [[ -n "$job" ]] && args+=(-j "$job")
 [[ -n "$arch" ]] && args+=(--matrix "arch:$arch")

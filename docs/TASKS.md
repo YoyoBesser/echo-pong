@@ -97,7 +97,9 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
   - [x] `app-ci.yml` + `helm-ci.yml` + `github-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
   - [x] Tests + Security summary tables in every run ([CI.md#build-summary](CI.md#build-summary))
+  - [x] Doc links checked in CI: repo-root relative, anchors resolve ([CI.md#doc-links](CI.md#doc-links))
   - [x] Every tool/action pin on latest, annotated with source + check date ([CI.md#tool-pins](CI.md#tool-pins))
+  - [x] Tool, Go, minikube, trivy DB and schema downloads cached across runs ([CI.md#tool-cache](CI.md#tool-cache))
   - [ ] Golangci-lint blocking (fix 11 existing `main.go` issues)
   - [ ] `release.yml` + `cd.yml` (placeholders), see L63–L65
 - **[L86](../README.md?plain=1#L86): Multi-Architecture builds**: see L62

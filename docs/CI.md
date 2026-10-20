@@ -9,6 +9,7 @@ CI is split by what changed:
 | [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint, SAST, SCA](#go-lint), [multi-arch build](#build) (GHCR push, [cache](#build-cache)) + [image scan](#image-scan), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
 | [`github-ci.yml`](../.github/workflows/github-ci.yml) | `.github/**` | [actionlint, ruff, pytest at 100% coverage](#github-ci), [summary](#build-summary) |
+| [`docs-ci.yml`](../.github/workflows/docs-ci.yml) | every change (no path filter) | [doc links](#doc-links), [summary](#build-summary) |
 
 Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. App CI also runs on chart changes, because the minikube e2e deploys the in-repo chart. An app-only PR doesn't lint the chart.
 
@@ -76,11 +77,26 @@ Every CI tool version lives in one block in [`.github/actions/install-ci-tools`]
 | `scan` | trivy + `trivy-plugin-govulncheck` |
 | `github` | uv (then `uv sync --locked` in `.github/`), actionlint |
 
-An unknown suite fails fast. Binaries are fetched from upstream releases and checked against the published SHA-256 checksums. One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
+An unknown suite fails fast. Binaries, including golangci-lint and helm, are fetched from upstream releases and checked against the published SHA-256 checksums, rather than through their setup actions, so they can be [cached](#tool-cache). One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
 
 Exceptions: the Go version comes from `src/go.mod`, so the toolchain matches the module. Python and its dev tools come from `.github/.python-version`, `pyproject.toml` and `uv.lock` (see [GitHub CI](#github-ci)). Actions are pinned by major tag where they're used (`astral-sh/setup-uv` by exact tag, since it publishes no major tags).
 
 Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so it's clear when it was last compared to upstream. The pins block strips these comments before writing `$GITHUB_OUTPUT`. All pins were on their latest release as of 2026-10-21, except `k8s-version` (see above) and the Go 1.24 toolchain, which comes from the original `go.mod`.
+
+### Tool cache
+
+`install-ci-tools` uses `actions/cache` (v6) wherever a download repeats across runs:
+
+| Cache | Path | Key | Saves |
+|---|---|---|---|
+| Tools | `~/.cache/ci-tools/<suite>` | suite, OS, arch, hash of the pins block | Every downloaded binary, plus the trivy plugin tarball. On a hit, all download steps are skipped. Bumping any pin changes the hash, so the cache never serves stale versions |
+| Go | setup-go's module + build cache | Go version + `src/go.mod` | Compiled packages for `go test`/vet, and the `go install` of govulncheck (including the newer toolchain it needs) |
+| minikube | `~/.minikube/cache` | arch, minikube version, `k8s-version` | Preload tarball + kicbase image (~1 GB) that `minikube start` would download |
+| trivy | `~/.cache/trivy` | OS + UTC date (restore from any older day) | Vulnerability DB and misconfig checks bundle. Trivy still refreshes them when stale |
+| kubeconform | `~/.cache/kubeconform` | `k8s-version` + hash of `helm/**` | Core and CRD-catalog JSON schemas (`-cache` flag) |
+| uv | setup-uv's cache | `.github/uv.lock` | Python wheels and the interpreter |
+
+Each cache is saved only when its key missed, so a hit costs a restore and no upload. Cache scope follows GitHub's rules: a PR branch can read caches from `main`, but not from other branches.
 
 ## Build
 
@@ -104,7 +120,7 @@ Every CI run pushes to `ghcr.io/<owner>/<repo>` (lowercased by [`gather-metadata
 
 `branch-slug` is the branch lowercased, with runs of characters outside `[a-z0-9._-]` replaced by `-`, so `feat/yonatan.besser/home-assignment-init` becomes `feat-yonatan.besser-home-assignment-init`. Provenance attestations are off for CI images (`provenance: false`). Signing and SBOMs belong to the release workflow.
 
-Pushing needs `packages: write`, granted only to `build`. `e2e-tests` gets `packages: read`. PRs from forks get a read-only `GITHUB_TOKEN`, so they can't push. This repo's PRs come from branches in the same repo. Per-commit tags pile up, so they need a retention policy (README L94, see [tasks.md](tasks.md)).
+Pushing needs `packages: write`, granted only to `build`. `e2e-tests` gets `packages: read`. PRs from forks get a read-only `GITHUB_TOKEN`, so they can't push. This repo's PRs come from branches in the same repo. Per-commit tags pile up, so they need a retention policy (README L94, see [TASKS.md](TASKS.md)).
 
 The registry is overridable: workflows pass `vars.CI_IMAGE` to `gather-metadata`, which outputs `image` and its `registry` host for `docker/login-action`. It's unset on GitHub. Locally, [act.sh](LOCAL-TESTING.md#act-wrapper) points it at a local registry.
 
@@ -239,10 +255,19 @@ Outcomes come from `steps.<id>.outcome` and `.conclusion` inside the job. The Gi
 - `lint` job: `actionlint (workflows)` (actionlint also runs shellcheck on `run:` blocks), `ruff check (lint)` and `ruff format (style)`.
 - `test` job: `pytest (100% coverage)`.
 
-The Python under `.github/` (currently [`summarize-results/render.py`](../.github/actions/summarize-results/render.py)) is a uv project in [`.github/pyproject.toml`](../.github/pyproject.toml):
+The Python under `.github/` ([`summarize-results/render.py`](../.github/actions/summarize-results/render.py), [`scripts/check_doc_links.py`](../.github/scripts/check_doc_links.py)) is a uv project in [`.github/pyproject.toml`](../.github/pyproject.toml):
 
 - Python version: [`.github/.python-version`](../.github/.python-version) (`3.14`), the newest Python cached on the `ubuntu-24.04` runner image (3.14.8). uv reads it and selects (or fetches) a matching interpreter, so no `setup-python` is needed.
 - Dev tools: ruff, pytest and pytest-cov, pinned in the `dev` dependency group and locked in [`.github/uv.lock`](../.github/uv.lock). CI runs `uv sync --locked`, so a stale lock fails instead of resolving silently.
 - Coverage: `--cov-branch --cov-fail-under=100` in `pyproject.toml`. Line and branch coverage both have to reach 100%. Only the `if __name__ == "__main__"` guard is excluded.
 
 To run locally, see [LOCAL-TESTING.md#github-ci](LOCAL-TESTING.md#github-ci).
+
+### Doc links
+
+[`check_doc_links.py`](../.github/scripts/check_doc_links.py) enforces the [AGENTS.md](../AGENTS.md) comment rule on every tracked file (`git ls-files`). It runs in `docs-ci.yml` on every PR commit and every push to main, with no path filter, because doc links live in workflows, Dockerfiles, Go, shell and Helm files alike:
+
+- **Code and config** (anything not `.md`): every `<path>.md#<anchor>` must be relative to the repo root (`docs/CI.md#soft-fail`, never `../docs/...` or `./...`), the file must exist, and the anchor must match a heading in it.
+- **Markdown**: every `[text](path#anchor)` link is resolved relative to the linking file, the way GitHub renders it, and the anchor must match a heading. `README.md?plain=1#L49` line links must point at a line that exists. External URLs are skipped.
+
+Links inside `inline code` are text, not links, so they're skipped. So are `test_*.py` files, which hold deliberately broken links as fixtures. Anchors are computed like GitHub's: lowercase, punctuation other than `-`/`_` dropped, spaces become `-`, `-1`, `-2`, ... for duplicate headings, and headings inside fenced code are ignored. Renaming a heading without updating its links fails CI. Run it locally with `uv run --project .github python .github/scripts/check_doc_links.py`.

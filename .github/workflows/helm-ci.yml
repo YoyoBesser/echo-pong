@@ -71,7 +71,7 @@ jobs:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
         # CRD schemas (Gateway API, Envoy) from the Datree catalog. See docs/CI.md#kubeconform
         run: |
-          kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" \
+          kubeconform -strict -summary -kubernetes-version "$K8S_VERSION" -cache "$KUBECONFORM_CACHE" \
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             "$RENDERED"

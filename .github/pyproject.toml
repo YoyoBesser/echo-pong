@@ -23,8 +23,8 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "PT", "RUF"]
 
 [tool.pytest.ini_options]
 addopts = "--cov --cov-branch --cov-report=term-missing --cov-fail-under=100"
-pythonpath = ["actions/summarize-results"]
-testpaths = ["actions"]
+pythonpath = ["actions/summarize-results", "scripts"]
+testpaths = ["actions", "scripts"]
 
 [tool.coverage.run]
-source = ["actions"]
+source = ["actions", "scripts"]

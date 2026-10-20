@@ -16,8 +16,12 @@ runs:
         pattern: ci-results-*
         path: ${{ runner.temp }}/ci-results
         merge-multiple: true
+    # uv + Python from .github/.python-version, same as github-ci. See docs/CI.md#github-ci
+    - uses: ./.github/actions/install-ci-tools
+      with:
+        suite: github
     - shell: bash
       env:
         ORDER: ${{ inputs.order }}
         RESULTS: ${{ runner.temp }}/ci-results
-      run: 'python3 "$GITHUB_ACTION_PATH/render.py" "$RESULTS" $ORDER >> "$GITHUB_STEP_SUMMARY"'
+      run: 'uv run --locked --project .github python "$GITHUB_ACTION_PATH/render.py" "$RESULTS" $ORDER >> "$GITHUB_STEP_SUMMARY"'
