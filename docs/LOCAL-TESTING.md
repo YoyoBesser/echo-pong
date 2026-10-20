@@ -36,7 +36,7 @@ act pull_request -W .github/workflows/app-ci.yml -e /tmp/pr.json
 - act ignores `paths:` filters, so `-W` picks the workflow, not what changed.
 - act runs the working tree, including uncommitted changes. `github.sha` is still the `HEAD` commit, so metadata reports `HEAD`.
 - The act runner image is smaller than GitHub's. For example, it has no `gh` CLI. Steps must not assume preinstalled tools beyond `git`, `curl` and `jq`.
-- Artifact handoff (`build` to `e2e`) doesn't work under act v0.2.84: its artifact server doesn't speak the `upload-artifact@v7` protocol. Run e2e directly instead, see [E2E](#e2e).
+- Artifact handoff (`build` to `e2e`) doesn't work under act (still broken in v0.2.89): its artifact server doesn't speak the `upload-artifact@v7` protocol. Run e2e directly instead, see [E2E](#e2e).
 - No jobs need secrets yet. When one does, pass it with `-s NAME=value` (for example `-s GITHUB_TOKEN="$(gh auth token)"`). Never commit a `.secrets` file.
 
 ## E2E

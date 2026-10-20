@@ -114,17 +114,16 @@ jobs:
           name: image-${{ matrix.arch }}
       - name: docker load
         run: gunzip -c "image-$ARCH.tar.gz" | docker load
-      - parallel:
-          - name: CLI e2e
-            working-directory: src
-            run: go test -tags e2e -count=1 -v -run '^TestCLI$' ./test/e2e
-          - name: API e2e
-            working-directory: src
-            run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
-          - name: minikube e2e
-            env:
-              K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
-            run: src/test/e2e/minikube-e2e.sh
+      - name: CLI e2e
+        working-directory: src
+        run: go test -tags e2e -count=1 -v -run '^TestCLI$' ./test/e2e
+      - name: API e2e
+        working-directory: src
+        run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
+      - name: minikube e2e
+        env:
+          K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+        run: src/test/e2e/minikube-e2e.sh
 
   scan:
     needs: [metadata, build]

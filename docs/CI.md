@@ -76,13 +76,15 @@ The target is set by env. `E2E_IMAGE` makes the tests start containers themselve
 | CLI | `TestCLI` | `--help`, ping/pong, wrong/missing password, missing/unknown command, missing `SECRET_FILE_PATH` |
 | API | `TestAPI` | `/health`, `/`, `/ping` and `/pong` with no, wrong, raw and `Bearer` tokens |
 
-The `e2e` job runs once per arch (`fail-fast: false`). It downloads and loads the arch's image artifact once, then runs three suites as [`parallel`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel) steps, each with its own log:
+The `e2e` job runs once per arch (`fail-fast: false`). It downloads and loads the arch's image artifact once, then runs three suites in sequence, fastest first, so a broken image fails within seconds:
 
 - `CLI e2e`: `go test -run '^TestCLI$'` against containers.
 - `API e2e`: `go test -run '^TestAPI$'` against a container.
 - `minikube e2e`: `TestAPI` through the Gateway of a live deploy (see [Minikube e2e](#minikube-e2e)).
 
-The job fails if any suite fails, but only after all three finish.
+The first failing suite fails the job, and later suites are skipped.
+
+The suites are deliberately not [`parallel:`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsparallel) steps. actionlint 1.7.12 (latest as of 2026-10) and act 0.2.89 don't support the keyword, so parallel steps couldn't be linted or run locally. Revisit when both support it.
 
 The secret file goes in with `docker create` + `docker cp`, not a bind mount (see [LOCAL-TESTING.md#e2e](LOCAL-TESTING.md#e2e)). The API suite waits up to 45s for `/health`, because the server sleeps 10s before listening.
 
@@ -117,7 +119,7 @@ To make these checks blocking, remove every `continue-on-error` (`grep -rn conti
 
 ## Minikube e2e
 
-The `minikube e2e` step runs in each arch's [e2e job](#e2e-tests), in parallel with the container suites. It runs `TestAPI` against a live Kubernetes deploy, with traffic entering through the [Gateway](HELM.md#envoy-gateway) the way it would in production.
+The `minikube e2e` step runs last in each arch's [e2e job](#e2e-tests), after the container suites pass. It runs `TestAPI` against a live Kubernetes deploy, with traffic entering through the [Gateway](HELM.md#envoy-gateway) the way it would in production.
 
 [`src/test/e2e/minikube-e2e.sh`](../src/test/e2e/minikube-e2e.sh) does the whole flow, locally and in CI:
 
@@ -128,7 +130,3 @@ The `minikube e2e` step runs in each arch's [e2e job](#e2e-tests), in parallel w
 5. Wait for the Gateway to be `Programmed` and the Envoy proxy pods to be ready. The controller creates them after install, so `helm --wait` doesn't cover them.
 6. `kubectl port-forward` the Envoy proxy Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
 7. Delete the cluster on exit (unless `KEEP_CLUSTER=1`).
-
-## Actionlint
-
-[`.github/actionlint.yaml`](../.github/actionlint.yaml) ignores one error in `app-ci.yml`: actionlint 1.7.12 (latest as of 2026-10) predates `parallel:` steps and reports them as steps with no `run`/`uses`. Steps nested inside `parallel:` aren't type-checked until actionlint supports the keyword. Drop the ignore when it does. act doesn't run `parallel:` steps either, so run e2e locally per [LOCAL-TESTING.md#e2e](LOCAL-TESTING.md#e2e).
