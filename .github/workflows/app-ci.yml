@@ -226,6 +226,9 @@ jobs:
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
         run: src/test/e2e/minikube-e2e.sh
+      # TODO: zero-downtime rollout check (README L56). See docs/CI.md#rollout-verification
+      - name: rollout verification
+        run: echo "TODO poll /health + /ping through the Gateway during helm upgrade; fail on any error"
       - if: always()
         uses: ./.github/actions/record-results
         with:

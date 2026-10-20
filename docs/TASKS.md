@@ -55,7 +55,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] kube-linter: probes, replica floor 2, rolling update, anti-affinity, PDB checks ([CI.md#kube-linter-policy](CI.md#kube-linter-policy))
   - [ ] `RollingUpdate` with `maxUnavailable: 0`, PDB, pod anti-affinity (TODO: wired in chart, off; [HELM.md#zero-downtime](HELM.md#zero-downtime))
   - [ ] App graceful shutdown on SIGTERM
-  - [ ] Verify zero-downtime rollout (traffic during `helm upgrade`)
+  - [ ] Verify zero-downtime rollout (traffic during `helm upgrade`) (TODO step in `e2e-tests`; [CI.md#rollout-verification](CI.md#rollout-verification))
 - **[L57](../README.md?plain=1#L57): ARM64 architecture preferred**
   - [x] arm64 image built and e2e-tested on an arm64 runner
   - [ ] `preferredDuringScheduling` node affinity for `kubernetes.io/arch: arm64`
