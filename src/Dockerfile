@@ -26,3 +26,4 @@ COPY --from=build /out/ping-pong-app /usr/local/bin/ping-pong-app
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/ping-pong-app"]
+    

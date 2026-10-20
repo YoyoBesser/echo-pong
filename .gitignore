@@ -47,3 +47,6 @@ ping-pong-app
 
 # Helm dependency archives (helm dependency build)
 helm/*/charts/
+
+# Extracted binaries (docs/LOCAL-TESTING.md#binary-e2e)
+dist/

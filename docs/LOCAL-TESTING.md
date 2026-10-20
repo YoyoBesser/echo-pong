@@ -66,3 +66,17 @@ CHART_REF=oci://ghcr.io/yoyobesser/charts/echo-pong src/test/e2e/minikube-e2e.sh
 ```
 
 Profile `echo-pong-e2e` by default (`MINIKUBE_PROFILE` overrides it). Run the script directly, not through act: minikube under act would publish the API server port on the host daemon, which the act job container can't reach.
+
+## Binary e2e
+
+Same check as CI's [binary e2e](CI.md#binary-e2e): pull the binary out of the image, put it on a stock distro, run both suites.
+
+```sh
+docker buildx build --platform linux/arm64 --load -t echo-pong:ci src/
+id=$(docker create echo-pong:ci) && mkdir -p dist && docker cp "$id:/usr/local/bin/ping-pong-app" dist/ && docker rm "$id"
+file dist/ping-pong-app                                   # must say "statically linked"
+docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin dist/
+cd src && E2E_IMAGE=echo-pong:bin go test -tags e2e -count=1 -v ./test/e2e
+```
+
+Use `BASE=ubuntu:latest` for glibc, and `--platform linux/amd64` on both builds for x86 under emulation. `dist/` is gitignored.

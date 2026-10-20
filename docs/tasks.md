@@ -18,6 +18,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 
 - **[L42](../README.md?plain=1#L42): Take this application to production with support for both x86 and ARM64 ... binary release and a container release**
   - [x] Image built for amd64 + arm64 on native runners ([CI.md#build-matrix](CI.md#build-matrix))
+  - [x] Static linux binaries (amd64, arm64) extracted from the CI image, e2e-tested on ubuntu + alpine ([CI.md#binary-e2e](CI.md#binary-e2e))
   - [ ] Release: multi-arch image to GHCR + binaries on GitHub Releases (`release.yml` placeholders)
 
 ## Security
@@ -75,7 +76,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] kube-linter: `latest-tag`
   - [ ] Version injected into binary; chart version tracks app version
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
-  - [ ] Binaries for linux/darwin × amd64/arm64 on GitHub Releases
+  - [x] linux amd64/arm64 binary = the image's binary, verified static and run on ubuntu + alpine ([CI.md#binary-e2e](CI.md#binary-e2e))
+  - [ ] Publish linux binaries + cross-compiled darwin amd64/arm64 on GitHub Releases
   - [ ] Image signing + SBOM
 
 ## Evaluation

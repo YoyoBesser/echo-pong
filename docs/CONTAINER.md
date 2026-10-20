@@ -20,7 +20,7 @@ The symlinks are created in a stage pinned to `$BUILDPLATFORM`, running the buil
 
 ## Cross-compile
 
-The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0`. Go cross-compiles natively, which is much faster than building under QEMU emulation. `CGO_ENABLED=0` yields a static binary, so it runs on `static` with no libc. `-trimpath -ldflags="-s -w"` strips local paths and debug symbols.
+The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0`. Go cross-compiles natively, which is much faster than building under QEMU emulation. `CGO_ENABLED=0` yields a static binary, so it runs on `static` with no libc. The same binary is the release artifact, and CI checks it is static and runs it on ubuntu and alpine ([CI.md#binary-e2e](CI.md#binary-e2e)). `-trimpath -ldflags="-s -w"` strips local paths and debug symbols.
 
 ## Non-root
 

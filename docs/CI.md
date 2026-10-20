@@ -6,7 +6,7 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), secret scan, image scan |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [binary e2e](#binary-e2e), secret scan, image scan |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) |
 
 Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. App CI also runs on chart changes, because the minikube e2e deploys the in-repo chart. An app-only PR doesn't lint the chart.
@@ -61,7 +61,7 @@ The Go version is the exception: it comes from `src/go.mod`, so the toolchain ma
 
 ## Build matrix
 
-`build` runs once per arch on a native GitHub runner: `ubuntu-latest` for amd64 and `ubuntu-24.04-arm` for arm64. Each leg builds [`src/Dockerfile`](../src/Dockerfile) as `echo-pong:ci` and uploads it as a gzipped `docker save` tarball (artifact `image-<arch>`, kept 1 day).
+`build` runs once per arch on a native GitHub runner: `ubuntu-latest` for amd64 and `ubuntu-24.04-arm` for arm64. Each leg builds [`src/Dockerfile`](../src/Dockerfile) as `echo-pong:ci` and uploads it as a gzipped `docker save` tarball (artifact `image-<arch>`, kept 1 day). It also copies the binary out of that image as artifact `binary-<arch>` (see [Binary e2e](#binary-e2e)).
 
 Native runners keep any target-arch execution (e2e, future scans) unemulated and fast. The Dockerfile itself cross-compiles (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)), so a single-runner `buildx --platform linux/amd64,linux/arm64` build also works. That's the likely shape for the release push.
 
@@ -130,3 +130,13 @@ The `minikube e2e` step runs last in each arch's [e2e job](#e2e-tests), after th
 5. Wait for the Gateway to be `Programmed` and the Envoy proxy pods to be ready. The controller creates them after install, so `helm --wait` doesn't cover them.
 6. `kubectl port-forward` the Envoy proxy Service, then run `TestAPI` with `E2E_BASE_URL` and `E2E_SECRET`.
 7. Delete the cluster on exit (unless `KEEP_CLUSTER=1`).
+
+## Binary e2e
+
+The release binary is the one inside the image, not a separate build. `build` copies `/usr/local/bin/ping-pong-app` out of the image it just built (`docker create` + `docker cp`) and fails unless `file` reports `statically linked`. It then uploads it as `binary-<arch>`. The container and the binary release can't drift: they are the same bytes.
+
+The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
+
+`binary-e2e` checks that on stock distros. The matrix is arch (amd64, arm64) × OS (`ubuntu:latest` for glibc, `alpine:latest` for musl), on native runners. Each leg copies the binary into a bare distro image with [`src/test/e2e/binary.Dockerfile`](../src/test/e2e/binary.Dockerfile) and runs the same CLI and API [e2e suites](#e2e-tests) against it. Nothing from the app image is reused except the binary.
+
+Artifacts don't keep file modes, so the job runs `chmod +x` after download. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
