@@ -58,6 +58,20 @@ Every PR entry requires:
 
 ---
 
+### 2026-10-21 - Gate CI: no more continue-on-error
+
+**Intent:** Make CI an actual guardrail before fixing the original code.
+
+**Result:** Lint, unit tests, scans and chart checks fail fast; e2e runs every suite and fails the run on any failure, with the summary showing which.
+
+- **authors:** YoyoBesser
+- **dependencies:** none
+- **workflows:** `continue-on-error` removed from every check (act-only artifact steps excepted); reusable scans lose their `blocking` input (always blocking); `test` job runs `go test -race -vet=off ./...`; e2e suite steps use `if: !cancelled()` so all suites run
+- **delivery:** none
+- **guardrails:** `.github/workflows/AGENTS.md` gating rules replace the soft-fail rule; `docs/CI.md#gating`
+- **breaking changes:** CI now fails on the original `main.go` findings and Go 1.24 stdlib CVEs until they're fixed
+- **Action needed:** none
+
 ### 2026-10-21 - [#1](https://github.com/YoyoBesser/echo-pong/pull/1) - Home assignment init: CI/CD skeleton, container, chart, e2e and security scans
 
 **Intent:** Put CI guardrails in place before touching app code.

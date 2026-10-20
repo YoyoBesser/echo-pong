@@ -175,18 +175,21 @@ CRDs (Gateway API `Gateway`/`HTTPRoute`/`GatewayClass`, Envoy `EnvoyProxy`) aren
 
 Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minimum-two-replicas`) instead of the built-in 3. Two replicas plus a PDB keep a pod serving through a rolling update or a single node drain. README L59 (registry pull) has no static check. It's covered by deploying, not linting.
 
-## Soft-fail
+## Gating
 
-Temporary: every check step that fails on the exercise's original code or the basic chart runs with step-level `continue-on-error: true`:
+Every check gates the run. Nothing uses `continue-on-error` except the act-only artifact steps and the summary plumbing itself.
 
-- `app-ci.yml`: golangci-lint, `go vet`, staticcheck, plus the [reusable scans](#reusable-scans) called with `blocking: false` (gosec, govulncheck, trivy image). Release calls the same scans with `blocking: true`.
-- `helm-ci.yml`: helm lint, template, kubeconform, kube-linter. `trivy config` is **blocking**: the chart passes its README gate since it gained a securityContext ([HELM.md#security-context](HELM.md#security-context)).
+**Fail fast** for lint, unit tests, scans and chart checks. Steps run in sequence, and the first failure stops its job. Downstream jobs that `need:` it don't start, so a lint error doesn't spend runner time on builds and e2e. The skipped checks show as `⏭️` in the [summary](#build-summary).
 
-This PR only adds the skeleton. It fixes nothing in the original `main.go`/`go.mod` (11 lint issues, 22 HIGH Go stdlib CVEs from Go 1.24) and doesn't harden the chart. Fixes come in later PRs, with CI as the guardrail.
+| Workflow | Fail-fast jobs |
+|---|---|
+| `app-ci.yml` | `lint` (golangci-lint, `go vet`, staticcheck), `test` (`go test -race -vet=off ./...`, unit tests only; vet runs in `lint`), `scan-source`, `scan-image` |
+| `helm-ci.yml` | `lint` (dependency build, helm lint, template, kubeconform, kube-linter, trivy config) |
+| `common-ci.yml` | `lint`, `test`, `doc-links`, `scan-repo` |
 
-Step-level (not job-level) keeps the job green so downstream jobs run, while the failure still shows in the step log and as `⚠️ fail (non-blocking)` in the [summary tables](#build-summary).
+**Run everything, then fail** for e2e. In each arch's `e2e-tests` job, every suite after the first has `if: ${{ !cancelled() }}`. A failing suite doesn't stop the rest: CLI, API, binary on ubuntu/alpine and minikube all run. The job still fails if any of them failed, and the summary shows exactly which ones. One e2e run tells you everything that's broken.
 
-To make these checks blocking, remove every `continue-on-error` (`grep -rn continue-on-error .github`) and the TODO comments that link here.
+The exercise's original code still fails these gates until it's fixed: golangci-lint, `go vet` and gosec on `main.go`, govulncheck and trivy on the Go 1.24 stdlib, and kube-linter on the basic chart. Those fixes come next, on this branch.
 
 ## Minikube e2e
 
@@ -222,10 +225,10 @@ Security scans are defined once, as reusable workflows (`on: workflow_call`), an
 | [`scan-image.yml`](../.github/workflows/scan-image.yml) | `scan-image (amd64)`, `scan-image (arm64)` | trivy vuln + image misconfig, govulncheck-filtered. See [Image scan](#image-scan) |
 | [`scan-repo.yml`](../.github/workflows/scan-repo.yml) | `scan-repo` | trivy fs + gitleaks secrets. See [Repo scan](#repo-scan) |
 
-Both take a `blocking` input. With `true`, a finding fails the job. With `false`, the step runs under `continue-on-error`, so the finding shows as `⚠️` in the [summary](#build-summary) but nothing fails.
+A finding always fails the job; see [Gating](#gating).
 
-- `app-ci.yml` calls them with `blocking: false` until the original code is fixed (see [Soft-fail](#soft-fail)).
-- `release.yml` calls them with `blocking: true` as the release gate (README L51, L87). `publish`, the only job that would tag `vX.Y.Z`, `needs:` both scans. A finding means no version tag, so nothing is released. `scan-image` scans the same `<image>:<sha>` digest that `publish` will retag, so what's released is exactly what was scanned.
+- `app-ci.yml` and `common-ci.yml` call them on every run.
+- `release.yml` calls them as the release gate (README L51, L87). `publish`, the only job that would tag `vX.Y.Z`, `needs:` both scans. A finding means no version tag, so nothing is released. `scan-image` scans the same `<image>:<sha>` digest that `publish` will retag, so what's released is exactly what was scanned.
 
 Results recorded inside a called workflow land in the caller's run, so the caller's `summary` job picks them up like any other job.
 
@@ -273,7 +276,7 @@ Every workflow's run summary ends with a **Tests** table and a **Security** tabl
 - Each job records its check outcomes with [`record-results`](../.github/actions/record-results/action.yml) (`if: always()`, one `kind|check|outcome|conclusion` row per check), uploaded as a `ci-results-<job>-<scope>` artifact.
 - A final `summary` job (`needs:` all jobs, `if: always()`) downloads them and renders the tables with [`summarize-results`](../.github/actions/summarize-results/action.yml).
 
-Outcomes come from `steps.<id>.outcome` and `.conclusion` inside the job. The GitHub API can't be used instead: it reports a failed `continue-on-error` step as `success`, which would hide every [soft-fail](#soft-fail). Naming and kind rules live in [.github/workflows/AGENTS.md](../.github/workflows/AGENTS.md).
+Outcomes come from `steps.<id>.outcome` and `.conclusion` inside the job. The GitHub API can't be used instead: it reports a failed `continue-on-error` step as `success`, so it couldn't tell a soft failure from a pass. Naming and kind rules live in [.github/workflows/AGENTS.md](../.github/workflows/AGENTS.md).
 
 ## Common CI
 
@@ -298,7 +301,7 @@ To run locally, see [LOCAL-TESTING.md#common-ci](LOCAL-TESTING.md#common-ci).
 
 [`check_doc_links.py`](../.github/scripts/check_doc_links.py) enforces the [AGENTS.md](../AGENTS.md) comment rule on every tracked file (`git ls-files`). It runs in [Common CI](#common-ci) on every commit, with no path filter, because doc links live in workflows, Dockerfiles, Go, shell and Helm files alike:
 
-- **Code and config** (anything not `.md`): every `<path>.md#<anchor>` must be relative to the repo root (`docs/CI.md#soft-fail`, never `../docs/...` or `./...`), the file must exist, and the anchor must match a heading in it.
+- **Code and config** (anything not `.md`): every `<path>.md#<anchor>` must be relative to the repo root (`docs/CI.md#gating`, never `../docs/...` or `./...`), the file must exist, and the anchor must match a heading in it.
 - **Markdown**: every `[text](path#anchor)` link is resolved relative to the linking file, the way GitHub renders it, and the anchor must match a heading. `README.md?plain=1#L49` line links must point at a line that exists. External URLs are skipped.
 
 Links inside `inline code` are text, not links, so they're skipped. So are `test_*.py` files, which hold deliberately broken links as fixtures. Anchors are computed like GitHub's: lowercase, punctuation other than `-`/`_` dropped, spaces become `-`, `-1`, `-2`, ... for duplicate headings, and headings inside fenced code are ignored. Renaming a heading without updating its links fails CI. Run it locally with `uv run --project .github python .github/scripts/check_doc_links.py`.

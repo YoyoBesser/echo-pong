@@ -3,11 +3,6 @@ name: Scan source
 # Reusable: SAST + SCA on src/, shared by CI and release. See docs/CI.md#reusable-scans
 on:
   workflow_call:
-    inputs:
-      blocking:
-        description: Fail the job on findings. false = report only.
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -22,13 +17,10 @@ jobs:
           suite: app
       - id: gosec
         name: gosec (SAST)
-        continue-on-error: ${{ !inputs.blocking }}
         working-directory: src
         run: gosec -tags e2e ./...
       - id: govulncheck
         name: govulncheck (SCA)
-        if: ${{ !cancelled() }}
-        continue-on-error: ${{ !inputs.blocking }}
         working-directory: src
         run: govulncheck -tags e2e ./...
       - if: always()

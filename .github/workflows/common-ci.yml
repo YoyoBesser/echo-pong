@@ -106,8 +106,6 @@ jobs:
   scan-repo:
     needs: metadata
     uses: ./.github/workflows/scan-repo.yml
-    with:
-      blocking: true
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:

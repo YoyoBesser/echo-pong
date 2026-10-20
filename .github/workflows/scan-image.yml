@@ -1,6 +1,6 @@
 name: Scan image
 
-# Reusable: CI (non-blocking for now) and release (blocking) scan the same way. See docs/CI.md#reusable-scans
+# Reusable: CI and release scan the same way, both blocking. See docs/CI.md#reusable-scans
 on:
   workflow_call:
     inputs:
@@ -12,10 +12,6 @@ on:
         description: Registry host of the image, for docker login.
         type: string
         required: true
-      blocking:
-        description: Fail the job on findings. false = report only.
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -45,7 +41,6 @@ jobs:
       # Fail on CRITICAL/HIGH, fixable or not (README L51). See docs/CI.md#image-scan
       - id: trivy
         name: trivy image (vuln + misconfig)
-        continue-on-error: ${{ !inputs.blocking }}
         run: .github/scripts/trivy-image.sh "$IMAGE" "$ARCH"
       - if: always()
         uses: ./.github/actions/record-results

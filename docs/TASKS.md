@@ -30,12 +30,12 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Chart `securityContext`: `runAsNonRoot`, UID 65532, `allowPrivilegeEscalation: false`, drop `ALL` caps, seccomp `RuntimeDefault` ([HELM.md#security-context](HELM.md#security-context))
   - [x] Pinned: 8-check blocking trivy gate + PSA `restricted` enforced in minikube e2e ([HELM.md#pod-security-admission](HELM.md#pod-security-admission))
 - **[L50](../README.md?plain=1#L50): All images must pass security scans**
-  - [x] trivy scans each arch image (vuln + image misconfig), Go CVEs filtered by `trivy-plugin-govulncheck` ([CI.md#image-scan](CI.md#image-scan), soft-fail for now)
-  - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), soft-fail for now)
+  - [x] trivy scans each arch image (vuln + image misconfig), Go CVEs filtered by `trivy-plugin-govulncheck` ([CI.md#image-scan](CI.md#image-scan), gating)
+  - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), gating)
 - **[L51](../README.md?plain=1#L51): No critical/high vulnerabilities should be released to production**
   - [x] Distroless static base keeps CVE surface near zero ([CONTAINER.md#base-image](CONTAINER.md#base-image))
-  - [x] CI fails on CRITICAL/HIGH, fixed or not (soft-fail until Go toolchain is bumped: 22 HIGH stdlib CVEs in Go 1.24)
-  - [x] Release gate: `release.yml` calls the same reusable scans with `blocking: true`; `publish` (the `vX.Y.Z` retag) needs both ([CI.md#reusable-scans](CI.md#reusable-scans))
+  - [x] CI fails on CRITICAL/HIGH, fixed or not (currently failing: 22 HIGH stdlib CVEs in Go 1.24 until the toolchain is bumped)
+  - [x] Release gate: `release.yml` calls the same reusable scans; `publish` (the `vX.Y.Z` retag) needs both ([CI.md#reusable-scans](CI.md#reusable-scans))
   - [ ] Release `image` job (build + push under SHA) still a placeholder
 - **[L52](../README.md?plain=1#L52): No secrets in codebase**
   - [x] Token only in an out-of-band Secret, never in values ([HELM.md#auth-secret](HELM.md#auth-secret))
@@ -94,7 +94,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Gate: trivy config KSV-0003 (drop `ALL` capabilities)
 - **[L84](../README.md?plain=1#L84): Kubernetes Manifests and best practices**
   - [x] Helm chart, `helm lint --strict`, `kubeconform -strict` incl. CRDs ([CI.md#chart-lint](CI.md#chart-lint))
-  - [x] README-traced kube-linter policy (soft-fail for now, [CI.md#soft-fail](CI.md#soft-fail))
+  - [x] README-traced kube-linter policy, gating ([CI.md#gating](CI.md#gating))
   - [ ] Chart passes the policy: resources, HPA, ServiceAccount, `values-<env>.yaml`
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
   - [x] `app-ci.yml` + `helm-ci.yml` + `common-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
@@ -102,7 +102,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Doc links checked in CI: repo-root relative, anchors resolve ([CI.md#doc-links](CI.md#doc-links))
   - [x] Every tool/action pin on latest, annotated with source + check date ([CI.md#tool-pins](CI.md#tool-pins))
   - [x] Tool, Go, minikube, trivy DB and schema downloads cached across runs ([CI.md#tool-cache](CI.md#tool-cache))
-  - [ ] Golangci-lint blocking (fix 11 existing `main.go` issues)
+  - [x] Every check gating: lint, unit tests and scans fail fast; e2e runs all suites, then fails on any ([CI.md#gating](CI.md#gating))
+  - [ ] Fix the existing `main.go` findings (golangci-lint, `go vet`, gosec) and Go 1.24 stdlib CVEs
   - [ ] `release.yml` + `cd.yml` (placeholders), see L63–L65
 - **[L86](../README.md?plain=1#L86): Multi-Architecture builds**: see L62
 - **[L87](../README.md?plain=1#L87): Security Scanning and release prevention for critical and high vulnerabilities**: see L50–L51

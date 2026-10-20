@@ -49,20 +49,17 @@ jobs:
       - uses: ./.github/actions/install-ci-tools
         with:
           suite: app
-      # TODO: make all three blocking (drop continue-on-error). See docs/CI.md#soft-fail
+      # Fail fast: the first failing check stops the job. See docs/CI.md#gating
       - id: golangci
         name: golangci-lint (hygiene)
-        continue-on-error: true
         working-directory: src
         run: golangci-lint run
       - id: vet
         name: go vet (correctness)
-        continue-on-error: true
         working-directory: src
         run: go vet -tags e2e ./...
       - id: staticcheck
         name: staticcheck (correctness)
-        continue-on-error: true
         working-directory: src
         run: staticcheck -tags e2e ./...
       - if: always()
@@ -77,7 +74,20 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TODO go test"
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: app
+      # Unit tests only; the e2e build tag keeps black-box suites out. See docs/CI.md#gating
+      - id: unit
+        name: go test (unit)
+        working-directory: src
+        run: go test -race -vet=off -count=1 ./...  # vet has its own step in lint
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|go test (unit)|${{ steps.unit.outcome }}|${{ steps.unit.conclusion }}
 
   # One buildx build, both arches, pushed as multi-arch <sha>. See docs/CI.md#build
   build:
@@ -140,12 +150,10 @@ jobs:
           rows: |
             tests|static binary|${{ steps.static-arm64.outcome }}|${{ steps.static-arm64.conclusion }}
 
-  # Same scans release uses; non-blocking until main.go is fixed. See docs/CI.md#reusable-scans
+  # Same scans release uses. See docs/CI.md#reusable-scans
   scan-source:
     needs: metadata
     uses: ./.github/workflows/scan-source.yml
-    with:
-      blocking: false  # TODO: true once fixed. See docs/CI.md#soft-fail
 
   scan-image:
     needs: [metadata, build]
@@ -156,7 +164,6 @@ jobs:
     with:
       image: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
       registry: ${{ needs.metadata.outputs.registry }}
-      blocking: false  # TODO: true once the Go toolchain is bumped. See docs/CI.md#soft-fail
 
   # All e2e suites for one arch in one job, artifacts fetched once. See docs/CI.md#e2e-tests
   e2e-tests:
@@ -202,27 +209,32 @@ jobs:
           got="$(docker image inspect --format '{{.Architecture}}' "$E2E_IMAGE")"
           [[ "$got" == "$ARCH" ]] || { echo "::error::pulled $got, want $ARCH"; exit 1; }
           chmod +x "dist/$ARCH/ping-pong-app"  # artifacts drop the exec bit
+      # Every suite runs even if an earlier one failed; any failure fails the job. See docs/CI.md#gating
       - id: cli
         name: CLI e2e
         working-directory: src
         run: go test -tags e2e -count=1 -v -run '^TestCLI$' ./test/e2e
       - id: api
         name: API e2e
+        if: ${{ !cancelled() }}
         working-directory: src
         run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
       # Static binary on stock distros, same suites. See docs/CI.md#binary-e2e
       - id: bin-ubuntu
         name: binary e2e (ubuntu)
+        if: ${{ !cancelled() }}
         run: |
           docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=ubuntu:latest -t echo-pong:bin-ubuntu "dist/$ARCH"
           cd src && E2E_IMAGE=echo-pong:bin-ubuntu go test -tags e2e -count=1 -v ./test/e2e
       - id: bin-alpine
         name: binary e2e (alpine)
+        if: ${{ !cancelled() }}
         run: |
           docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin-alpine "dist/$ARCH"
           cd src && E2E_IMAGE=echo-pong:bin-alpine go test -tags e2e -count=1 -v ./test/e2e
       - id: minikube
         name: minikube e2e
+        if: ${{ !cancelled() }}
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
         run: src/test/e2e/minikube-e2e.sh

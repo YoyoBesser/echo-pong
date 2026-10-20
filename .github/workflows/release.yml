@@ -40,14 +40,10 @@ jobs:
   scan-source:
     needs: metadata
     uses: ./.github/workflows/scan-source.yml
-    with:
-      blocking: true
 
   scan-repo:
     needs: metadata
     uses: ./.github/workflows/scan-repo.yml
-    with:
-      blocking: true
 
   scan-image:
     needs: [metadata, image]
@@ -58,7 +54,6 @@ jobs:
     with:
       image: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
       registry: ${{ needs.metadata.outputs.registry }}
-      blocking: true
 
   publish:
     needs: [metadata, scan-source, scan-repo, scan-image]
