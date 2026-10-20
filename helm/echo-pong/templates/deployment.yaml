@@ -11,10 +11,12 @@ spec:
     metadata:
       labels: {{- include "echo-pong.selectorLabels" . | nindent 8 }}
     spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: echo-pong
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           env:
             - name: SECRET_FILE_PATH
               value: /var/run/secrets/echo-pong/token

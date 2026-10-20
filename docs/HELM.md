@@ -8,6 +8,7 @@ Chart: [`helm/echo-pong`](../helm/echo-pong). It's deliberately minimal for now:
 | `image.repository` / `image.tag` | `ghcr.io/yoyobesser/echo-pong` / `appVersion` | App image |
 | `image.pullPolicy` | `IfNotPresent` | `Never` in [minikube e2e](CI.md#minikube-e2e) (preloaded image) |
 | `auth.existingSecret` | `echo-pong-auth` | See [Auth secret](#auth-secret) |
+| `podSecurityContext` / `securityContext` | see [Security context](#security-context) | Pod / container security context |
 | `service.port` | `80` | Service port (container listens on `8080`) |
 | `gateway.className` | `echo-pong` | GatewayClass created by the chart |
 | `gateway.serviceType` | `ClusterIP` | Envoy proxy Service type, see [Envoy Gateway](#envoy-gateway) |
@@ -28,6 +29,20 @@ The chart then defines:
 `gateway.serviceType` defaults to `ClusterIP`. Nothing is exposed directly (README L58), and the Gateway reports `Programmed` on clusters without a load balancer, such as minikube. With `LoadBalancer`, minikube leaves the address `<pending>` and the Gateway never becomes `Programmed`. On a cloud cluster (EKS), set `LoadBalancer` to get an NLB in front of Envoy.
 
 Envoy Gateway's controller is cluster-scoped (GatewayClass, CRDs). Installing it per app release is fine for a single-app cluster and for e2e. A shared cluster would install it once, separately, with `envoy-gateway.enabled=false` here.
+
+## Security context
+
+The pod and container run locked down by default (`podSecurityContext`, `securityContext` in `values.yaml`):
+
+| Setting | Value | README |
+|---|---|---|
+| `runAsNonRoot`, `runAsUser`/`runAsGroup`/`fsGroup` | `true`, `65532` (the image's numeric `USER`, see [CONTAINER.md#non-root](CONTAINER.md#non-root)) | L49 |
+| `allowPrivilegeEscalation`, `privileged` | `false` | L49 |
+| `readOnlyRootFilesystem` | `true`. The app writes nothing, and its secret is a read-only volume | L53 |
+| `capabilities.drop` | `[ALL]` | L83 |
+| `seccompProfile.type` | `RuntimeDefault` | L83 |
+
+A regression is caught by the blocking `trivy config` gate in helm-ci ([CI.md#trivy-config](CI.md#trivy-config)), which fails if any of the first four rows' fields go missing or unsafe, whether from a template edit, a values override or a deleted block. kube-linter alone can't do this, because it passes a container that sets nothing. The minikube e2e runs the app with these settings.
 
 ## Auth secret
 

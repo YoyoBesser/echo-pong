@@ -26,8 +26,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L49](../README.md?plain=1#L49): No containers running as root**
   - [x] Image runs as numeric UID `65532` ([CONTAINER.md#non-root](CONTAINER.md#non-root))
   - [x] kube-linter: `run-as-non-root`, `privileged-container`, `privilege-escalation-container`
-  - [x] Gate: trivy config KSV-0001 (`allowPrivilegeEscalation`), KSV-0012 (`runAsNonRoot`) on the rendered chart ([CI.md#trivy-config](CI.md#trivy-config), soft-fail for now)
-  - [ ] Chart `securityContext`: `runAsNonRoot`, `allowPrivilegeEscalation: false`, drop `ALL` caps
+  - [x] Blocking gate: trivy config KSV-0001 (`allowPrivilegeEscalation`), KSV-0012 (`runAsNonRoot`) on the rendered chart ([CI.md#trivy-config](CI.md#trivy-config))
+  - [x] Chart `securityContext`: `runAsNonRoot`, UID 65532, `allowPrivilegeEscalation: false`, drop `ALL` caps, seccomp `RuntimeDefault` ([HELM.md#security-context](HELM.md#security-context))
 - **[L50](../README.md?plain=1#L50): All images must pass security scans**
   - [x] trivy scans each arch image (vuln + image misconfig), Go CVEs filtered by `trivy-plugin-govulncheck` ([CI.md#image-scan](CI.md#image-scan), soft-fail for now)
   - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), soft-fail for now)
@@ -45,7 +45,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Secret volume mounted `readOnly`
   - [x] kube-linter: `no-read-only-root-fs`, host mount, `docker-sock`, `host-pid`/`host-ipc` checks
   - [x] Gate: trivy config KSV-0014 (`readOnlyRootFilesystem`) ([CI.md#trivy-config](CI.md#trivy-config))
-  - [ ] Chart `readOnlyRootFilesystem: true`
+  - [x] Chart `readOnlyRootFilesystem: true`; minikube e2e runs with it
 
 ## Kubernetes
 

@@ -79,10 +79,10 @@ jobs:
         name: kube-linter
         continue-on-error: true
         run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"
-      # Gate only README-traced KSV IDs; full report is informational. See docs/CI.md#trivy-config
+      # Blocking: README-traced KSV IDs only; full report is informational. See docs/CI.md#trivy-config
       - id: trivy-config
         name: trivy config
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           trivy config --quiet -f json -o trivy-config.json "$RENDERED"

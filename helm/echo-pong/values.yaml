@@ -9,6 +9,22 @@ image:
 auth:
   existingSecret: echo-pong-auth
 
+# Non-root, no escalation, no caps, read-only root FS. See docs/HELM.md#security-context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
 service:
   port: 80
 

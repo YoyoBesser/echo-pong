@@ -181,7 +181,7 @@ Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minim
 Temporary: every check step that fails on the exercise's original code or the basic chart runs with step-level `continue-on-error: true`:
 
 - `app-ci.yml`: golangci-lint, `go vet`, staticcheck, gosec, govulncheck, trivy image.
-- `helm-ci.yml`: helm lint, template, kubeconform, kube-linter, trivy config.
+- `helm-ci.yml`: helm lint, template, kubeconform, kube-linter. `trivy config` is **blocking**: the chart passes its README gate since it gained a securityContext ([HELM.md#security-context](HELM.md#security-context)).
 
 This PR only adds the skeleton. It fixes nothing in the original `main.go`/`go.mod` (11 lint issues, 22 HIGH Go stdlib CVEs from Go 1.24) and doesn't harden the chart. Fixes come in later PRs, with CI as the guardrail.
 
