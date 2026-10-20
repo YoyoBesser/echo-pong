@@ -25,7 +25,7 @@ Every PR that changes app behaviour, tooling, workflows, guardrails or delivery 
 
 - `src/`: Go service (`Dockerfile`, e2e tests in `src/test/e2e/`).
 - `helm/echo-pong/`: Helm chart (Envoy Gateway subchart, Gateway API routing).
-- `docs/tasks.md`: terse high-level task list.
+- `docs/tasks.md`: README requirements by line number, with how we meet each (done/planned).
 - `docs/plans/`: in-depth implementation plans. Written only when the user asks for a specific one.
 - `docs/*.md`: reference docs, the targets of code-comment links.
 - `docs/CHANGELOG.md`: one entry per PR, newest first.
