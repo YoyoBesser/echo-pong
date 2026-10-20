@@ -48,7 +48,7 @@ Every PR entry requires:
 **Result:** One sentence, what users get.
 
 - **authors:** login1, login2
-- **dependencies:** none | what changed in go.mod, Chart.lock, base images or pinned tools
+- **dependencies:** Go app moved to `src/` (unchanged); base images `gcr.io/distroless/static-debian13:nonroot` + `busybox:musl`; chart dependency `gateway-helm` 1.9.2; CI tool pins (all latest as of 2026-10-21) in `.github/actions/install-ci-tools`; Python dev deps (ruff, pytest, pytest-cov) in `.github/pyproject.toml` + `uv.lock`, Python 3.14 from `.github/.python-version`
 - **workflows:** none | what changed in `.github/workflows/`, `.github/actions/` or CI
 - **delivery:** none | what changed in the image (`src/Dockerfile`) or chart (`helm/`)
 - **guardrails:** none | new or changed tests, linters, policies or AGENTS rules
@@ -66,8 +66,8 @@ Every PR entry requires:
 
 - **authors:** YoyoBesser
 - **dependencies:** Go app moved to `src/` (unchanged); base images `gcr.io/distroless/static-debian13:nonroot` + `busybox:musl`; chart dependency `gateway-helm` 1.9.2; CI tool pins in `.github/actions/install-ci-tools` (golangci-lint v2.15.0, helm v4.3.1, kubeconform v0.8.0, kube-linter v0.8.3, minikube v1.39.0, k8s 1.35.0)
-- **workflows:** new `app-ci.yml` (lint, native arch build matrix, per-arch `e2e-tests`: CLI, API, binary on ubuntu/alpine, then minikube, in one job), `helm-ci.yml` (helm lint, kubeconform, kube-linter), `release.yml` and `cd.yml` skeletons; shared actions `gather-metadata`, `install-ci-tools`
+- **workflows:** new `github-ci.yml` (actionlint, ruff, pytest 100% coverage); Tests + Security summary tables in every workflow (`record-results`, `summarize-results`); new `app-ci.yml` (golangci-lint, go vet, staticcheck, gosec, govulncheck, trivy image scan, native arch build matrix, per-arch `e2e-tests`: CLI, API, binary on ubuntu/alpine, then minikube, in one job), `helm-ci.yml` (helm lint, kubeconform, kube-linter), `release.yml` and `cd.yml` skeletons; shared actions `gather-metadata`, `install-ci-tools`
 - **delivery:** new `src/Dockerfile` (cross-compiled, non-root UID 65532, busybox shell); static linux binaries extracted from the image as CI artifacts; basic chart `helm/echo-pong` with Envoy Gateway subchart and Gateway API routing
-- **guardrails:** golangci-lint and chart checks soft-fail for now (`docs/CI.md#soft-fail`); README-traced kube-linter policy; e2e suites in `src/test/e2e`; `AGENTS.md` comment and changelog rules; `docs/tasks.md` maps each README requirement (by line) to how we meet it
+- **guardrails:** all checks failing on original code soft-fail for now (`docs/CI.md#soft-fail`); trivy config gate on README-traced KSV IDs (`helm/.trivy-ksv-gate`); `.github/workflows/AGENTS.md` workflow conventions; README-traced kube-linter policy; e2e suites in `src/test/e2e`; `AGENTS.md` comment and changelog rules; `docs/tasks.md` maps each README requirement (by line) to how we meet it
 - **breaking changes:** `main.go`/`go.mod` moved from repo root to `src/`
-- **Action needed:** run: helm dependency build helm/echo-pong
+- **Action needed:** run: helm dependency build helm/echo-pong && (cd .github && uv sync)

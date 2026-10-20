@@ -1,0 +1,23 @@
+name: Summarize results
+description: Render all recorded check outcomes as Tests and Security tables in the run summary. See .github/workflows/AGENTS.md.
+
+inputs:
+  order:
+    description: Space-separated job ids, in the order their checks should be listed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # No results (or act) must not fail the summary.
+    - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
+      continue-on-error: true
+      with:
+        pattern: ci-results-*
+        path: ${{ runner.temp }}/ci-results
+        merge-multiple: true
+    - shell: bash
+      env:
+        ORDER: ${{ inputs.order }}
+        RESULTS: ${{ runner.temp }}/ci-results
+      run: 'python3 "$GITHUB_ACTION_PATH/render.py" "$RESULTS" $ORDER >> "$GITHUB_STEP_SUMMARY"'

@@ -6,8 +6,9 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | Go lint, test, [build matrix](#build-matrix), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [binary e2e](#binary-e2e), secret scan, image scan |
-| [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint, SAST, SCA](#go-lint), [build matrix](#build-matrix) + [image scan](#image-scan), [e2e](#e2e-tests) (incl. [binary](#binary-e2e), [minikube](#minikube-e2e)), secret scan, [summary](#build-summary) |
+| [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
+| [`github-ci.yml`](../.github/workflows/github-ci.yml) | `.github/**` | [actionlint, ruff, pytest at 100% coverage](#github-ci), [summary](#build-summary) |
 
 Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. App CI also runs on chart changes, because the minikube e2e deploys the in-repo chart. An app-only PR doesn't lint the chart.
 
@@ -42,22 +43,44 @@ On `pull_request`, `actions/checkout` fetches only the merge commit (`fetch-dept
 
 ## Go lint
 
-The `lint` job runs [golangci-lint](https://golangci-lint.run) in `src/` with [`src/.golangci.yml`](../src/.golangci.yml). Its version is pinned (see [Tool pins](#tool-pins)), so a new linter release can't break CI unannounced. The `e2e` build tag is enabled, so the e2e tests get linted too.
+The `lint` job runs five Go checks in `src/`, each as its own step (and its own [summary](#build-summary) row), all with the `e2e` build tag so the e2e tests are covered too:
 
-Linters: golangci's `standard` set (`errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`) plus:
+| Step | Kind | Catches |
+|---|---|---|
+| `golangci-lint (hygiene)` | tests | `errcheck`, `ineffassign`, `unused`, `errorlint` (`%w` wrapping), `bodyclose`, `misspell`, `gofmt`, configured in [`src/.golangci.yml`](../src/.golangci.yml) |
+| `go vet (correctness)` | tests | Suspicious constructs the compiler accepts (printf args, struct tags, copied locks) |
+| `staticcheck (correctness)` | tests | Bugs, dead code, deprecated APIs, simplifications |
+| `gosec (SAST)` | security | See [SAST and SCA](#sast-and-sca) |
+| `govulncheck (SCA)` | security | See [SAST and SCA](#sast-and-sca) |
 
-- `gosec`: security issues (file inclusion, missing HTTP timeouts, log injection).
-- `errorlint`: wrap errors with `%w`, so callers can use `errors.Is`/`errors.As`.
-- `bodyclose`: unclosed HTTP response bodies.
-- `misspell`: typos in comments and strings.
+golangci-lint is limited to hygiene linters (`default: none`). vet, staticcheck and gosec run standalone, so each tool reports once under its own name instead of twice. All versions are pinned (see [Tool pins](#tool-pins)). To run locally, see [LOCAL-TESTING.md#ci](LOCAL-TESTING.md#ci).
 
-`gofmt` runs as a formatter check. To run locally, see [LOCAL-TESTING.md#ci](LOCAL-TESTING.md#ci).
+## SAST and SCA
+
+- **gosec** (SAST) scans our own Go code for security flaws: path traversal, unchecked errors, missing HTTP server timeouts, log injection.
+- **govulncheck** (SCA) checks the module's dependencies and the Go stdlib against the Go vulnerability database. It reports only vulnerabilities whose vulnerable symbols our code actually calls, which removes the false positives a version-only scanner reports.
+
+Both run on source. The built image is scanned separately (see [Image scan](#image-scan)).
+
+staticcheck and gosec ship checksum-verified release binaries. govulncheck doesn't, so it's built with `go install`. Both upstream modules require Go ≥ 1.26, so `GOTOOLCHAIN=auto` fetches a newer toolchain for that build only. The analysis itself uses the module's Go 1.24 toolchain, so stdlib findings match what we ship.
 
 ## Tool pins
 
-Every CI tool version lives in one block in [`.github/actions/install-ci-tools`](../.github/actions/install-ci-tools/action.yml). Jobs call it with `suite: app` (Go, golangci-lint), `suite: helm` (helm, kubeconform, kube-linter) or `suite: minikube` (Go, helm, minikube, kubectl). An unknown suite fails fast. One `k8s-version` pin drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
+Every CI tool version lives in one block in [`.github/actions/install-ci-tools`](../.github/actions/install-ci-tools/action.yml):
 
-The Go version is the exception: it comes from `src/go.mod`, so the toolchain matches the module. Actions themselves (`actions/checkout@v7`, ...) are pinned by major tag where they're used.
+| Suite | Installs |
+|---|---|
+| `app` | Go, golangci-lint, staticcheck, gosec, govulncheck |
+| `helm` | helm, kubeconform, kube-linter, trivy |
+| `minikube` | Go, helm, minikube, kubectl |
+| `scan` | trivy + `trivy-plugin-govulncheck`; also outputs the local `registry-image` |
+| `github` | uv (then `uv sync --locked` in `.github/`), actionlint |
+
+An unknown suite fails fast. Binaries are fetched from upstream releases and checked against the published SHA-256 checksums. One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
+
+Exceptions: the Go version comes from `src/go.mod`, so the toolchain matches the module. Python and its dev tools come from `.github/.python-version`, `pyproject.toml` and `uv.lock` (see [GitHub CI](#github-ci)). Actions are pinned by major tag where they're used (`astral-sh/setup-uv` by exact tag, since it publishes no major tags).
+
+Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so it's clear when it was last compared to upstream. The pins block strips these comments before writing `$GITHUB_OUTPUT`. All pins were on their latest release as of 2026-10-21, except `k8s-version` (see above) and the Go 1.24 toolchain, which comes from the original `go.mod`.
 
 ## Build matrix
 
@@ -96,7 +119,7 @@ The secret file goes in with `docker create` + `docker cp`, not a bind mount (se
 0. `helm dependency build` fetches the [Envoy Gateway subchart](HELM.md#envoy-gateway) pinned in `Chart.lock`. `helm/*/charts/` is gitignored.
 1. `helm lint --strict`: chart structure and templates. Warnings fail too.
 2. `helm template --skip-tests` renders the manifests. Test hooks are skipped because they are throwaway pods, not deployed workload, and would otherwise trip the policy below.
-3. The rendered output goes through [kubeconform](#kubeconform) (schema) and [kube-linter](#kube-linter-policy) (policy).
+3. The rendered output goes through [kubeconform](#kubeconform) (schema), [kube-linter](#kube-linter-policy) (policy) and [trivy config](#trivy-config) (security misconfig).
 
 ### Kubeconform
 
@@ -112,9 +135,14 @@ Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minim
 
 ## Soft-fail
 
-Temporary: golangci-lint (`app-ci.yml`) and the chart checks (`helm-ci.yml`) run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e-tests` run while the existing `main.go` has 11 lint issues and the basic chart doesn't yet meet the kube-linter policy.
+Temporary: every check step that fails on the exercise's original code or the basic chart runs with step-level `continue-on-error: true`:
 
-Step-level (not job-level) keeps the job green so downstream jobs run, while the failed step still shows in the run log.
+- `app-ci.yml`: golangci-lint, `go vet`, staticcheck, gosec, govulncheck, trivy image.
+- `helm-ci.yml`: helm lint, template, kubeconform, kube-linter, trivy config.
+
+This PR only adds the skeleton. It fixes nothing in the original `main.go`/`go.mod` (11 lint issues, 22 HIGH Go stdlib CVEs from Go 1.24) and doesn't harden the chart. Fixes come in later PRs, with CI as the guardrail.
+
+Step-level (not job-level) keeps the job green so downstream jobs run, while the failure still shows in the step log and as `⚠️ fail (non-blocking)` in the [summary tables](#build-summary).
 
 To make these checks blocking, remove every `continue-on-error` (`grep -rn continue-on-error .github`) and the TODO comments that link here.
 
@@ -141,3 +169,53 @@ The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CO
 The `binary e2e (ubuntu, alpine)` step in each arch's [`e2e-tests` job](#e2e-tests) checks that on stock distros: `ubuntu:latest` for glibc and `alpine:latest` for musl, on the arch's native runner. For each OS, it copies the binary into a bare distro image with [`src/test/e2e/binary.Dockerfile`](../src/test/e2e/binary.Dockerfile) and runs the same CLI and API suites against it (one log group per OS). Nothing from the app image is reused except the binary.
 
 Artifacts don't keep file modes, so the step runs `chmod +x` first. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
+
+## Image scan
+
+`build` scans each arch's image with trivy for CRITICAL/HIGH vulnerabilities (OS packages and the Go binary) and image-config misconfigurations (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them.
+
+Go-binary findings go through [`trivy-plugin-govulncheck`](https://github.com/DataDog/trivy-plugin-govulncheck) (v0.1.4). It runs govulncheck in binary mode on the image's Go binary, and drops (marks `not_affected`) the CVEs whose vulnerable code isn't reachable. The filtered JSON is then gated with `trivy convert --exit-code 1`, because the exit code of an output-plugin run doesn't reflect findings.
+
+The plugin pulls the image itself (via go-containerregistry, not trivy's cache or the Docker daemon). So the job runs a throwaway `registry:3.1.2` on `localhost:5000` and pushes the image there first. go-containerregistry allows plain HTTP for `localhost`. Pointing the plugin at a local-only tag instead makes it try Docker Hub and silently skip filtering.
+
+Both trivy and the plugin are installed from checksum-verified release tarballs rather than `aquasecurity/trivy-action`, so no third-party action code runs in the job. The plugin is installed from its tarball, not `trivy plugin install github.com/...`, which would fetch an unpinned manifest.
+
+Blind spot: busybox is copied in as a bare binary, with no package metadata, so trivy doesn't see its version (see [CONTAINER.md#busybox](CONTAINER.md#busybox)).
+
+## Trivy config
+
+kube-linter only flags fields that are present and wrong. A container with no `securityContext` at all passes `privilege-escalation-container` and a drop-`ALL` capabilities check. Trivy's Kubernetes checks (KSV) also require the safe values to be set explicitly, so `helm-ci.yml` runs `trivy config` on the rendered chart as well:
+
+1. The full report prints as a table. It's informational, and includes the Envoy Gateway subchart's RBAC.
+2. The gate fails only on the KSV IDs listed in [`helm/.trivy-ksv-gate`](../helm/.trivy-ksv-gate). Each has a comment naming the README line it answers, like the [kube-linter policy](#kube-linter-policy):
+
+| ID | Requires | README |
+|---|---|---|
+| KSV-0001 | `allowPrivilegeEscalation: false` | L49 |
+| KSV-0012 | `runAsNonRoot: true` | L49 |
+| KSV-0014 | `readOnlyRootFilesystem: true` | L53 |
+| KSV-0003 | `capabilities.drop: [ALL]` | L83 |
+
+## Build summary
+
+Every workflow's run summary ends with a **Tests** table and a **Security** table. Rows are checks, columns are scopes (`all`, `amd64`, `arm64`). Together they show every test and security tool's result for the run in one place.
+
+- Each job records its check outcomes with [`record-results`](../.github/actions/record-results/action.yml) (`if: always()`, one `kind|check|outcome|conclusion` row per check), uploaded as a `ci-results-<job>-<scope>` artifact.
+- A final `summary` job (`needs:` all jobs, `if: always()`) downloads them and renders the tables with [`summarize-results`](../.github/actions/summarize-results/action.yml).
+
+Outcomes come from `steps.<id>.outcome` and `.conclusion` inside the job. The GitHub API can't be used instead: it reports a failed `continue-on-error` step as `success`, which would hide every [soft-fail](#soft-fail). Naming and kind rules live in [.github/workflows/AGENTS.md](../.github/workflows/AGENTS.md).
+
+## GitHub CI
+
+`github-ci.yml` is CI for CI. It runs on any `.github/**` change:
+
+- `lint` job: `actionlint (workflows)` (actionlint also runs shellcheck on `run:` blocks), `ruff check (lint)` and `ruff format (style)`.
+- `test` job: `pytest (100% coverage)`.
+
+The Python under `.github/` (currently [`summarize-results/render.py`](../.github/actions/summarize-results/render.py)) is a uv project in [`.github/pyproject.toml`](../.github/pyproject.toml):
+
+- Python version: [`.github/.python-version`](../.github/.python-version) (`3.14`), the newest Python cached on the `ubuntu-24.04` runner image (3.14.8). uv reads it and selects (or fetches) a matching interpreter, so no `setup-python` is needed.
+- Dev tools: ruff, pytest and pytest-cov, pinned in the `dev` dependency group and locked in [`.github/uv.lock`](../.github/uv.lock). CI runs `uv sync --locked`, so a stale lock fails instead of resolving silently.
+- Coverage: `--cov-branch --cov-fail-under=100` in `pyproject.toml`. Line and branch coverage both have to reach 100%. Only the `if __name__ == "__main__"` guard is excluded.
+
+To run locally, see [LOCAL-TESTING.md#github-ci](LOCAL-TESTING.md#github-ci).

@@ -80,3 +80,14 @@ cd src && E2E_IMAGE=echo-pong:bin go test -tags e2e -count=1 -v ./test/e2e
 ```
 
 Use `BASE=ubuntu:latest` for glibc, and `--platform linux/amd64` on both builds for x86 under emulation. `dist/` is gitignored.
+
+## GitHub CI
+
+Same checks as CI's [GitHub CI](CI.md#github-ci):
+
+```sh
+actionlint
+cd .github && uv run --locked ruff check . && uv run --locked ruff format --check . && uv run --locked pytest
+```
+
+uv picks Python 3.14 from `.github/.python-version`. Use uv ≥ 0.13 (CI pins 0.13.4). After editing dependencies in `pyproject.toml`, run `uv lock` and commit `uv.lock`.

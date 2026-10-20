@@ -31,7 +31,7 @@ jobs:
       commit-message: ${{ steps.meta.outputs.commit-message }}
       reason: ${{ steps.meta.outputs.reason }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: meta
         uses: ./.github/actions/gather-metadata
 
@@ -39,15 +39,45 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - uses: ./.github/actions/install-ci-tools
         with:
           suite: app
-      # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail
-      - name: golangci-lint
+      # TODO: make all five blocking (drop continue-on-error). See docs/CI.md#soft-fail
+      - id: golangci
+        name: golangci-lint (hygiene)
         continue-on-error: true
         working-directory: src
         run: golangci-lint run
+      - id: vet
+        name: go vet (correctness)
+        continue-on-error: true
+        working-directory: src
+        run: go vet -tags e2e ./...
+      - id: staticcheck
+        name: staticcheck (correctness)
+        continue-on-error: true
+        working-directory: src
+        run: staticcheck -tags e2e ./...
+      - id: gosec
+        name: gosec (SAST)
+        continue-on-error: true
+        working-directory: src
+        run: gosec -tags e2e ./...
+      - id: govulncheck
+        name: govulncheck (SCA)
+        continue-on-error: true
+        working-directory: src
+        run: govulncheck -tags e2e ./...
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|golangci-lint (hygiene)|${{ steps.golangci.outcome }}|${{ steps.golangci.conclusion }}
+            tests|go vet|${{ steps.vet.outcome }}|${{ steps.vet.conclusion }}
+            tests|staticcheck|${{ steps.staticcheck.outcome }}|${{ steps.staticcheck.conclusion }}
+            security|gosec (SAST)|${{ steps.gosec.outcome }}|${{ steps.gosec.conclusion }}
+            security|govulncheck (SCA)|${{ steps.govulncheck.outcome }}|${{ steps.govulncheck.conclusion }}
 
   test:
     needs: metadata
@@ -75,29 +105,58 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - name: docker build
         run: |
           set -euo pipefail
           docker build --platform "linux/$ARCH" -t echo-pong:ci src/
           docker save echo-pong:ci | gzip > "image-$ARCH.tar.gz"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
         with:
           name: image-${{ matrix.arch }}
           path: image-${{ matrix.arch }}.tar.gz
           retention-days: 1
       # Ship the exact binary the image runs. See docs/CI.md#binary-e2e
-      - name: extract static binary
+      - id: static
+        name: extract static binary
         run: |
           set -euo pipefail
           id="$(docker create echo-pong:ci)"
           mkdir -p dist && docker cp "$id:/usr/local/bin/ping-pong-app" dist/ping-pong-app && docker rm "$id"
           file dist/ping-pong-app | tee /dev/stderr | grep -q 'statically linked'
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
         with:
           name: binary-${{ matrix.arch }}
           path: dist/ping-pong-app
           retention-days: 1
+      - id: scan-tools
+        uses: ./.github/actions/install-ci-tools
+        with:
+          suite: scan
+      # govulncheck plugin pulls the image itself, so serve it from a local registry. See docs/CI.md#image-scan
+      - name: push to local registry
+        env:
+          REGISTRY_IMAGE: ${{ steps.scan-tools.outputs.registry-image }}
+        run: |
+          docker run -d --name registry -p 5000:5000 "$REGISTRY_IMAGE"
+          docker tag echo-pong:ci localhost:5000/echo-pong:ci
+          docker push -q localhost:5000/echo-pong:ci
+      # Fail on CRITICAL/HIGH, fixable or not (README L51). TODO: make blocking. See docs/CI.md#soft-fail
+      - id: trivy
+        name: trivy image scan (vuln + misconfig, govulncheck-filtered)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trivy image --no-progress --severity CRITICAL,HIGH --image-config-scanners misconfig \
+            -f json -o plugin=govulncheck localhost:5000/echo-pong:ci > trivy-image.json
+          trivy convert --format table --exit-code 1 --severity CRITICAL,HIGH trivy-image.json
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          scope: ${{ matrix.arch }}
+          rows: |
+            tests|static binary|${{ steps.static.outcome }}|${{ steps.static.conclusion }}
+            security|trivy image (vuln + misconfig)|${{ steps.trivy.outcome }}|${{ steps.trivy.conclusion }}
 
   # All e2e suites for one arch in one job, artifacts fetched once. See docs/CI.md#e2e-tests
   e2e-tests:
@@ -116,44 +175,64 @@ jobs:
       ARCH: ${{ matrix.arch }}
       E2E_IMAGE: echo-pong:ci
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: tools
         uses: ./.github/actions/install-ci-tools
         with:
           suite: minikube
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
         with:
           name: image-${{ matrix.arch }}
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
         with:
           name: binary-${{ matrix.arch }}
           path: dist
       - name: docker load
-        run: gunzip -c "image-$ARCH.tar.gz" | docker load
-      - name: CLI e2e
+        run: |
+          gunzip -c "image-$ARCH.tar.gz" | docker load
+          chmod +x dist/ping-pong-app  # artifacts drop the exec bit
+      - id: cli
+        name: CLI e2e
         working-directory: src
         run: go test -tags e2e -count=1 -v -run '^TestCLI$' ./test/e2e
-      - name: API e2e
+      - id: api
+        name: API e2e
         working-directory: src
         run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
       # Static binary on stock distros, same suites. See docs/CI.md#binary-e2e
-      - name: binary e2e (ubuntu, alpine)
+      - id: bin-ubuntu
+        name: binary e2e (ubuntu)
         run: |
-          set -euo pipefail
-          chmod +x dist/ping-pong-app  # artifacts drop the exec bit
-          for os in ubuntu alpine; do
-            echo "::group::$os"
-            docker build -f src/test/e2e/binary.Dockerfile --build-arg "BASE=$os:latest" -t "echo-pong:bin-$os" dist/
-            (cd src && E2E_IMAGE="echo-pong:bin-$os" go test -tags e2e -count=1 -v ./test/e2e)
-            echo "::endgroup::"
-          done
-      - name: minikube e2e
+          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=ubuntu:latest -t echo-pong:bin-ubuntu dist/
+          cd src && E2E_IMAGE=echo-pong:bin-ubuntu go test -tags e2e -count=1 -v ./test/e2e
+      - id: bin-alpine
+        name: binary e2e (alpine)
+        run: |
+          docker build -f src/test/e2e/binary.Dockerfile --build-arg BASE=alpine:latest -t echo-pong:bin-alpine dist/
+          cd src && E2E_IMAGE=echo-pong:bin-alpine go test -tags e2e -count=1 -v ./test/e2e
+      - id: minikube
+        name: minikube e2e
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
         run: src/test/e2e/minikube-e2e.sh
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          scope: ${{ matrix.arch }}
+          rows: |
+            tests|CLI e2e|${{ steps.cli.outcome }}|${{ steps.cli.conclusion }}
+            tests|API e2e|${{ steps.api.outcome }}|${{ steps.api.conclusion }}
+            tests|binary e2e (ubuntu)|${{ steps.bin-ubuntu.outcome }}|${{ steps.bin-ubuntu.conclusion }}
+            tests|binary e2e (alpine)|${{ steps.bin-alpine.outcome }}|${{ steps.bin-alpine.conclusion }}
+            tests|minikube e2e|${{ steps.minikube.outcome }}|${{ steps.minikube.conclusion }}
 
-  scan:
-    needs: [metadata, build]
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [lint, build, e2e-tests]
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TODO vulnerability scan; fail on critical/high"
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: lint build e2e-tests

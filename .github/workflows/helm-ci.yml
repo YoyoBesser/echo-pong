@@ -30,7 +30,7 @@ jobs:
       commit-message: ${{ steps.meta.outputs.commit-message }}
       reason: ${{ steps.meta.outputs.reason }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: meta
         uses: ./.github/actions/gather-metadata
 
@@ -41,7 +41,7 @@ jobs:
       CHART: helm/echo-pong
       RENDERED: rendered.yaml
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: tools
         uses: ./.github/actions/install-ci-tools
         with:
@@ -49,14 +49,17 @@ jobs:
       - name: helm dependency build
         run: helm dependency build "$CHART"
       # TODO: make blocking (drop continue-on-error). See docs/CI.md#soft-fail
-      - name: helm lint
+      - id: helm-lint
+        name: helm lint
         continue-on-error: true
         run: helm lint --strict "$CHART"
       # Test hooks excluded from render. See docs/CI.md#chart-lint
-      - name: helm template
+      - id: template
+        name: helm template
         continue-on-error: true
         run: helm template echo-pong "$CHART" --skip-tests > "$RENDERED"
-      - name: kubeconform
+      - id: kubeconform
+        name: kubeconform
         continue-on-error: true
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
@@ -66,6 +69,40 @@ jobs:
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             "$RENDERED"
-      - name: kube-linter
+      - id: kube-linter
+        name: kube-linter
         continue-on-error: true
         run: kube-linter lint --config helm/.kube-linter.yaml "$RENDERED"
+      # Gate only README-traced KSV IDs; full report is informational. See docs/CI.md#trivy-config
+      - id: trivy-config
+        name: trivy config
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trivy config --quiet -f json -o trivy-config.json "$RENDERED"
+          trivy convert --format table trivy-config.json
+          gate="$(grep -oE '^KSV-[0-9]+' helm/.trivy-ksv-gate | jq -R . | jq -cs .)"
+          jq -r --argjson gate "$gate" '.Results[]?.Misconfigurations[]?
+            | select(.Status == "FAIL" and (.ID | IN($gate[])))
+            | "\(.ID) \(.Message)"' trivy-config.json | sort -u > gate-failures.txt
+          if [[ -s gate-failures.txt ]]; then echo "::error::README-gated KSV checks failed"; cat gate-failures.txt; exit 1; fi
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|helm lint --strict|${{ steps.helm-lint.outcome }}|${{ steps.helm-lint.conclusion }}
+            tests|helm template|${{ steps.template.outcome }}|${{ steps.template.conclusion }}
+            tests|kubeconform -strict|${{ steps.kubeconform.outcome }}|${{ steps.kubeconform.conclusion }}
+            tests|kube-linter (README policy)|${{ steps.kube-linter.outcome }}|${{ steps.kube-linter.conclusion }}
+            security|trivy config (README KSV gate)|${{ steps.trivy-config.outcome }}|${{ steps.trivy-config.conclusion }}
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: lint

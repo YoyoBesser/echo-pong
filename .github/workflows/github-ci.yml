@@ -1,0 +1,93 @@
+name: GitHub CI
+
+# CI for CI: workflows, actions and their Python. See docs/CI.md#github-ci
+on:
+  pull_request:
+    branches: [main]
+    paths: &paths
+      - .github/**
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      branch: ${{ steps.meta.outputs.branch }}
+      sha: ${{ steps.meta.outputs.sha }}
+      short-sha: ${{ steps.meta.outputs.short-sha }}
+      commit-message: ${{ steps.meta.outputs.commit-message }}
+      reason: ${{ steps.meta.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - id: meta
+        uses: ./.github/actions/gather-metadata
+
+  lint:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: github
+      - id: actionlint
+        name: actionlint (workflows)
+        if: ${{ !cancelled() }}
+        run: actionlint
+      - id: ruff-check
+        name: ruff check (lint)
+        if: ${{ !cancelled() }}
+        working-directory: .github
+        run: uv run --locked ruff check --output-format=github .
+      - id: ruff-format
+        name: ruff format (style)
+        if: ${{ !cancelled() }}
+        working-directory: .github
+        run: uv run --locked ruff format --check .
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|actionlint (workflows)|${{ steps.actionlint.outcome }}|${{ steps.actionlint.conclusion }}
+            tests|ruff check (lint)|${{ steps.ruff-check.outcome }}|${{ steps.ruff-check.conclusion }}
+            tests|ruff format (style)|${{ steps.ruff-format.outcome }}|${{ steps.ruff-format.conclusion }}
+
+  test:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: github
+      # Coverage floor is 100% (pyproject.toml). See docs/CI.md#github-ci
+      - id: pytest
+        name: pytest (100% coverage)
+        working-directory: .github
+        run: uv run --locked pytest
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|pytest (100% coverage)|${{ steps.pytest.outcome }}|${{ steps.pytest.conclusion }}
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: lint test

@@ -26,11 +26,14 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L49](../README.md?plain=1#L49): No containers running as root**
   - [x] Image runs as numeric UID `65532` ([CONTAINER.md#non-root](CONTAINER.md#non-root))
   - [x] kube-linter: `run-as-non-root`, `privileged-container`, `privilege-escalation-container`
+  - [x] Gate: trivy config KSV-0001 (`allowPrivilegeEscalation`), KSV-0012 (`runAsNonRoot`) on the rendered chart ([CI.md#trivy-config](CI.md#trivy-config), soft-fail for now)
   - [ ] Chart `securityContext`: `runAsNonRoot`, `allowPrivilegeEscalation: false`, drop `ALL` caps
 - **[L50](../README.md?plain=1#L50): All images must pass security scans**
-  - [ ] Scan each arch image in `app-ci.yml` (`scan` placeholder, scanner TBD)
+  - [x] trivy scans each arch image (vuln + image misconfig), Go CVEs filtered by `trivy-plugin-govulncheck` ([CI.md#image-scan](CI.md#image-scan), soft-fail for now)
+  - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), soft-fail for now)
 - **[L51](../README.md?plain=1#L51): No critical/high vulnerabilities should be released to production**
   - [x] Distroless static base keeps CVE surface near zero ([CONTAINER.md#base-image](CONTAINER.md#base-image))
+  - [x] CI fails on CRITICAL/HIGH, fixed or not (soft-fail until Go toolchain is bumped: 22 HIGH stdlib CVEs in Go 1.24)
   - [ ] Scan gate in `release.yml` before any push; fail on CRITICAL/HIGH
 - **[L52](../README.md?plain=1#L52): No secrets in codebase**
   - [x] Token only in an out-of-band Secret, never in values ([HELM.md#auth-secret](HELM.md#auth-secret))
@@ -41,6 +44,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Distroless image; `.dockerignore` allowlist (`go.mod`, `*.go` only)
   - [x] Secret volume mounted `readOnly`
   - [x] kube-linter: `no-read-only-root-fs`, host mount, `docker-sock`, `host-pid`/`host-ipc` checks
+  - [x] Gate: trivy config KSV-0014 (`readOnlyRootFilesystem`) ([CI.md#trivy-config](CI.md#trivy-config))
   - [ ] Chart `readOnlyRootFilesystem: true`
 
 ## Kubernetes
@@ -83,12 +87,15 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 ## Evaluation
 
 - **[L83](../README.md?plain=1#L83): Container Security**: see L49–L53
+  - [x] Gate: trivy config KSV-0003 (drop `ALL` capabilities)
 - **[L84](../README.md?plain=1#L84): Kubernetes Manifests and best practices**
   - [x] Helm chart, `helm lint --strict`, `kubeconform -strict` incl. CRDs ([CI.md#chart-lint](CI.md#chart-lint))
   - [x] README-traced kube-linter policy (soft-fail for now, [CI.md#soft-fail](CI.md#soft-fail))
   - [ ] Chart passes the policy: resources, HPA, ServiceAccount, `values-<env>.yaml`
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
-  - [x] `app-ci.yml` + `helm-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
+  - [x] `app-ci.yml` + `helm-ci.yml` + `github-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
+  - [x] Tests + Security summary tables in every run ([CI.md#build-summary](CI.md#build-summary))
+  - [x] Every tool/action pin on latest, annotated with source + check date ([CI.md#tool-pins](CI.md#tool-pins))
   - [ ] Golangci-lint blocking (fix 11 existing `main.go` issues)
   - [ ] `release.yml` + `cd.yml` (placeholders), see L63–L65
 - **[L86](../README.md?plain=1#L86): Multi-Architecture builds**: see L62

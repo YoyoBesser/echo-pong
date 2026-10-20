@@ -20,7 +20,7 @@ jobs:
       commit-message: ${{ steps.meta.outputs.commit-message }}
       reason: ${{ steps.meta.outputs.reason }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: meta
         uses: ./.github/actions/gather-metadata
 
@@ -43,3 +43,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "TODO publish GitHub Release ${{ github.ref_name }} with binaries"
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [metadata, image, binaries, github-release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: metadata image binaries github-release

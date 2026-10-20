@@ -3,14 +3,16 @@ version: "2"
 run:
   build-tags: [e2e]
 
-# Linter choice: docs/CI.md#go-lint
+# Hygiene only; vet, staticcheck, gosec run standalone. See docs/CI.md#go-lint
 linters:
-  default: standard
+  default: none
   enable:
-    - gosec
-    - misspell
-    - bodyclose
+    - errcheck
+    - ineffassign
+    - unused
     - errorlint
+    - bodyclose
+    - misspell
 
 formatters:
   enable:

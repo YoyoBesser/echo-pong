@@ -22,7 +22,7 @@ jobs:
       short-sha: ${{ steps.meta.outputs.short-sha }}
       reason: ${{ steps.meta.outputs.reason }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: meta
         uses: ./.github/actions/gather-metadata
 
@@ -45,3 +45,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "TODO prune old/untagged images per retention policy"
+
+  # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
+  summary:
+    needs: [metadata, deploy, verify, cleanup]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: ./.github/actions/summarize-results
+        with:
+          order: metadata deploy verify cleanup

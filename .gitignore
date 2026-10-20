@@ -50,3 +50,10 @@ helm/*/charts/
 
 # Extracted binaries (docs/LOCAL-TESTING.md#binary-e2e)
 dist/
+
+# uv environment for .github/ tooling
+.github/.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
