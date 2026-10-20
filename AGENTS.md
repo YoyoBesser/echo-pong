@@ -25,6 +25,7 @@ Every PR that changes app behaviour, tooling, workflows, guardrails or delivery 
 
 - `src/`: Go service (`Dockerfile`, e2e tests in `src/test/e2e/`).
 - `helm/echo-pong/`: Helm chart (Envoy Gateway subchart, Gateway API routing).
+- `scripts/`: local dev tools (`minikube-up.sh`); `scripts/lib/` holds shell shared with CI scripts.
 - `docs/TASKS.md`: README requirements by line number, with how we meet each (done/planned).
 - `docs/plans/`: in-depth implementation plans. Written only when the user asks for a specific one.
 - `docs/*.md`: reference docs, the targets of code-comment links.

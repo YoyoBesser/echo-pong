@@ -3,7 +3,10 @@
 set -euo pipefail
 image="$1" arch="$2" out="$3"
 
-docker pull --quiet --platform "linux/$arch" "$image" >/dev/null
+# Pull unless that arch is already local (e.g. a locally built image).
+if [[ "$(docker image inspect --format '{{.Architecture}}' "$image" 2>/dev/null)" != "$arch" ]]; then
+  docker pull --quiet --platform "linux/$arch" "$image" >/dev/null
+fi
 id="$(docker create --platform "linux/$arch" "$image")"
 trap 'docker rm "$id" >/dev/null' EXIT
 mkdir -p "$out"

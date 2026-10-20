@@ -123,6 +123,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [ ] Docs entry point linking every area; explain `helm/` and `src/` vs the README's `k8s/` and root `Dockerfile`
 - **[L105](../README.md?plain=1#L105): Use Minikube/Kind for testing. Be prepared to explain real cloud deployment strategy.**
   - [x] `minikube-e2e.sh` deploys the chart and tests through the Gateway, locally and in CI ([LOCAL-TESTING.md#minikube-e2e](LOCAL-TESTING.md#minikube-e2e))
+  - [x] `scripts/minikube-up.sh`: local build or GHCR tag, deploy, real ingress via `minikube tunnel`, `--test` runs every suite ([LOCAL-TESTING.md#minikube-up](LOCAL-TESTING.md#minikube-up))
   - [ ] EKS deployment doc (see L114)
 
 ## To explain

@@ -112,3 +112,25 @@ What it sets up:
 - **Token**: `GITHUB_TOKEN` from `gh auth token`. act needs it to clone remote actions; with a dummy token they're silently skipped. The local registry accepts it as a login.
 
 Still not possible under act: artifact upload/download (act's artifact server doesn't speak v7). Those steps are non-fatal under act (`continue-on-error: ${{ !!env.ACT }}`), so jobs after `build` that need artifacts (`e2e-tests`, `summary`) won't have them. Run e2e directly per [E2E](#e2e).
+
+## Minikube up
+
+[`scripts/minikube-up.sh`](../scripts/minikube-up.sh) runs the app on a local minikube, reachable the way it would be in a cloud cluster: through the Envoy Gateway's own address, not a port-forward.
+
+```sh
+scripts/minikube-up.sh                 # build the image from src/ (this machine's arch), deploy, tunnel
+scripts/minikube-up.sh --tag <tag>     # use ghcr.io/yoyobesser/echo-pong:<tag> instead, e.g. a commit SHA from CI
+scripts/minikube-up.sh --test          # deploy, then run every e2e suite and exit with the result
+scripts/minikube-up.sh --port 80       # listener on :80 (minikube tunnel asks for sudo below 1024)
+scripts/minikube-up.sh --down          # delete the cluster
+```
+
+What it does:
+
+1. Builds the image (`echo-pong:dev-<short-sha>[-dirty]`) or pulls the GHCR tag. A private package needs `docker login ghcr.io` with a `read:packages` token. The image is loaded into minikube, so the cluster needs no pull secret.
+2. Starts minikube (profile `echo-pong-dev`) on the CI `k8s-version` pin, read from `install-ci-tools`.
+3. Deploys the local chart through the same steps as the [minikube e2e](CI.md#minikube-e2e): namespace with [PSA `restricted`](HELM.md#pod-security-admission), auth Secret, `helm upgrade --install`. They're shared via [`scripts/lib/minikube.sh`](../scripts/lib/minikube.sh). The difference is `gateway.serviceType=LoadBalancer` and `gateway.port` (default 8080).
+4. Runs `minikube tunnel`, which gives the Envoy LoadBalancer Service the external IP `127.0.0.1`. The Gateway then reports that address as `Programmed`.
+5. Prints the URL, the token and ready-to-paste curls, then keeps the tunnel in the foreground. Ctrl-C stops the tunnel; the cluster stays up for a quick rerun.
+
+With `--test`, it runs the same suites as CI's `e2e-tests` job for the local arch instead of holding the tunnel: CLI and API e2e against the image, the static-binary check, binary e2e on ubuntu and alpine, and API e2e through the live Gateway URL. It prints a pass/fail table and exits non-zero if any suite failed.
