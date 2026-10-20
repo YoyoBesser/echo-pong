@@ -99,9 +99,9 @@ jobs:
           path: dist/ping-pong-app
           retention-days: 1
 
-  # All e2e suites for one arch in one job, image loaded once. See docs/CI.md#e2e-tests
-  e2e:
-    name: e2e (${{ matrix.arch }})
+  # All e2e suites for one arch in one job, artifacts fetched once. See docs/CI.md#e2e-tests
+  e2e-tests:
+    name: e2e-tests (${{ matrix.arch }})
     needs: build
     strategy:
       fail-fast: false
@@ -124,6 +124,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: image-${{ matrix.arch }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: binary-${{ matrix.arch }}
+          path: dist
       - name: docker load
         run: gunzip -c "image-$ARCH.tar.gz" | docker load
       - name: CLI e2e
@@ -132,46 +136,21 @@ jobs:
       - name: API e2e
         working-directory: src
         run: go test -tags e2e -count=1 -v -run '^TestAPI$' ./test/e2e
+      # Static binary on stock distros, same suites. See docs/CI.md#binary-e2e
+      - name: binary e2e (ubuntu, alpine)
+        run: |
+          set -euo pipefail
+          chmod +x dist/ping-pong-app  # artifacts drop the exec bit
+          for os in ubuntu alpine; do
+            echo "::group::$os"
+            docker build -f src/test/e2e/binary.Dockerfile --build-arg "BASE=$os:latest" -t "echo-pong:bin-$os" dist/
+            (cd src && E2E_IMAGE="echo-pong:bin-$os" go test -tags e2e -count=1 -v ./test/e2e)
+            echo "::endgroup::"
+          done
       - name: minikube e2e
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
         run: src/test/e2e/minikube-e2e.sh
-
-  # Static binary on stock distros, same CLI + API suites. See docs/CI.md#binary-e2e
-  binary-e2e:
-    name: binary-e2e (${{ matrix.arch }}, ${{ matrix.os }})
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-        os: [ubuntu, alpine]
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    env:
-      OS: ${{ matrix.os }}
-      E2E_IMAGE: echo-pong:bin
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/install-ci-tools
-        with:
-          suite: app
-      - uses: actions/download-artifact@v8
-        with:
-          name: binary-${{ matrix.arch }}
-          path: dist
-      - name: docker build ${{ matrix.os }} wrapper
-        # Artifacts drop the exec bit.
-        run: |
-          chmod +x dist/ping-pong-app
-          docker build -f src/test/e2e/binary.Dockerfile --build-arg "BASE=$OS:latest" -t "$E2E_IMAGE" dist/
-      - name: CLI + API e2e
-        working-directory: src
-        run: go test -tags e2e -count=1 -v ./test/e2e
 
   scan:
     needs: [metadata, build]

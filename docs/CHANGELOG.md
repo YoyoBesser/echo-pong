@@ -66,7 +66,7 @@ Every PR entry requires:
 
 - **authors:** YoyoBesser
 - **dependencies:** Go app moved to `src/` (unchanged); base images `gcr.io/distroless/static-debian13:nonroot` + `busybox:musl`; chart dependency `gateway-helm` 1.9.2; CI tool pins in `.github/actions/install-ci-tools` (golangci-lint v2.15.0, helm v4.3.1, kubeconform v0.8.0, kube-linter v0.8.3, minikube v1.39.0, k8s 1.35.0)
-- **workflows:** new `app-ci.yml` (lint, native arch build matrix, per-arch e2e: CLI, API, then minikube in one job; binary-e2e on ubuntu/alpine), `helm-ci.yml` (helm lint, kubeconform, kube-linter), `release.yml` and `cd.yml` skeletons; shared actions `gather-metadata`, `install-ci-tools`
+- **workflows:** new `app-ci.yml` (lint, native arch build matrix, per-arch `e2e-tests`: CLI, API, binary on ubuntu/alpine, then minikube, in one job), `helm-ci.yml` (helm lint, kubeconform, kube-linter), `release.yml` and `cd.yml` skeletons; shared actions `gather-metadata`, `install-ci-tools`
 - **delivery:** new `src/Dockerfile` (cross-compiled, non-root UID 65532, busybox shell); static linux binaries extracted from the image as CI artifacts; basic chart `helm/echo-pong` with Envoy Gateway subchart and Gateway API routing
 - **guardrails:** golangci-lint and chart checks soft-fail for now (`docs/CI.md#soft-fail`); README-traced kube-linter policy; e2e suites in `src/test/e2e`; `AGENTS.md` comment and changelog rules; `docs/tasks.md` maps each README requirement (by line) to how we meet it
 - **breaking changes:** `main.go`/`go.mod` moved from repo root to `src/`

@@ -76,10 +76,11 @@ The target is set by env. `E2E_IMAGE` makes the tests start containers themselve
 | CLI | `TestCLI` | `--help`, ping/pong, wrong/missing password, missing/unknown command, missing `SECRET_FILE_PATH` |
 | API | `TestAPI` | `/health`, `/`, `/ping` and `/pong` with no, wrong, raw and `Bearer` tokens |
 
-The `e2e` job runs once per arch (`fail-fast: false`). It downloads and loads the arch's image artifact once, then runs three suites in sequence, fastest first, so a broken image fails within seconds:
+The `e2e-tests` job runs once per arch (`fail-fast: false`). It downloads the arch's image and binary artifacts once, then runs the suites in sequence, fastest first, so a broken image fails within seconds:
 
 - `CLI e2e`: `go test -run '^TestCLI$'` against containers.
 - `API e2e`: `go test -run '^TestAPI$'` against a container.
+- `binary e2e (ubuntu, alpine)`: both suites against the static binary on stock distros (see [Binary e2e](#binary-e2e)).
 - `minikube e2e`: `TestAPI` through the Gateway of a live deploy (see [Minikube e2e](#minikube-e2e)).
 
 The first failing suite fails the job, and later suites are skipped.
@@ -111,7 +112,7 @@ Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minim
 
 ## Soft-fail
 
-Temporary: golangci-lint (`app-ci.yml`) and the chart checks (`helm-ci.yml`) run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e` run while the existing `main.go` has 11 lint issues and the basic chart doesn't yet meet the kube-linter policy.
+Temporary: golangci-lint (`app-ci.yml`) and the chart checks (`helm-ci.yml`) run with step-level `continue-on-error: true`. The skeleton PR lands as a smoke test, so `build` and `e2e-tests` run while the existing `main.go` has 11 lint issues and the basic chart doesn't yet meet the kube-linter policy.
 
 Step-level (not job-level) keeps the job green so downstream jobs run, while the failed step still shows in the run log.
 
@@ -119,7 +120,7 @@ To make these checks blocking, remove every `continue-on-error` (`grep -rn conti
 
 ## Minikube e2e
 
-The `minikube e2e` step runs last in each arch's [e2e job](#e2e-tests), after the container suites pass. It runs `TestAPI` against a live Kubernetes deploy, with traffic entering through the [Gateway](HELM.md#envoy-gateway) the way it would in production.
+The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), after the container and binary suites pass. It runs `TestAPI` against a live Kubernetes deploy, with traffic entering through the [Gateway](HELM.md#envoy-gateway) the way it would in production.
 
 [`src/test/e2e/minikube-e2e.sh`](../src/test/e2e/minikube-e2e.sh) does the whole flow, locally and in CI:
 
@@ -137,6 +138,6 @@ The release binary is the one inside the image, not a separate build. `build` co
 
 The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
 
-`binary-e2e` checks that on stock distros. The matrix is arch (amd64, arm64) × OS (`ubuntu:latest` for glibc, `alpine:latest` for musl), on native runners. Each leg copies the binary into a bare distro image with [`src/test/e2e/binary.Dockerfile`](../src/test/e2e/binary.Dockerfile) and runs the same CLI and API [e2e suites](#e2e-tests) against it. Nothing from the app image is reused except the binary.
+The `binary e2e (ubuntu, alpine)` step in each arch's [`e2e-tests` job](#e2e-tests) checks that on stock distros: `ubuntu:latest` for glibc and `alpine:latest` for musl, on the arch's native runner. For each OS, it copies the binary into a bare distro image with [`src/test/e2e/binary.Dockerfile`](../src/test/e2e/binary.Dockerfile) and runs the same CLI and API suites against it (one log group per OS). Nothing from the app image is reused except the binary.
 
-Artifacts don't keep file modes, so the job runs `chmod +x` after download. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
+Artifacts don't keep file modes, so the step runs `chmod +x` first. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
