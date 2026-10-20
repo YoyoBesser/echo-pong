@@ -318,11 +318,11 @@ Links inside `inline code` are text, not links, so they're skipped. So are `test
 
 ## Rollout verification
 
-README L56. **Status: TODO**, as a placeholder step after `minikube e2e` in each arch's `e2e-tests` job.
+README L56. The `zero-downtime rollout` step in each arch's `e2e-tests` job runs [`rollout-check.sh`](../src/test/e2e/rollout-check.sh) on the cluster the minikube e2e left running (`KEEP_CLUSTER=1`). It's also a `scripts/minikube-up.sh --test` suite.
 
-Intended design: on the minikube cluster the e2e already deploys, start a loop that polls `/health` and `/ping` (with the token) through the Gateway, every 100 ms. Meanwhile, `helm upgrade` with a changed pod template (e.g. a `rollout-id` annotation) so every pod is replaced. Fail on any non-2xx response or connection error, and record the request count and failures in the summary.
+It port-forwards the Envoy proxy Service, then polls `/ping` (with the token) every 100 ms through the Gateway. Meanwhile it runs `kubectl rollout restart` and waits for the rollout to finish, so every app pod is replaced. It fails if any response isn't `200`, and logs the request count and status breakdown.
 
-It passes only once [HELM.md#zero-downtime](HELM.md#zero-downtime) is done: rolling-update settings, PDB, and graceful shutdown in the app.
+It has caught real downtime. With the protections turned off (`maxUnavailable: 1`, no `preStop` sleep), the same check fails with `211 requests, 1 not 200 (… 1 503)`. With the chart defaults ([HELM.md#zero-downtime](HELM.md#zero-downtime)), it passes with 0 failures.
 
 ## Image cleanup
 

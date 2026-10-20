@@ -162,6 +162,7 @@ if [[ "$test" == 1 ]]; then
   E2E_IMAGE="$IMAGE" suite "API e2e (container)" e2e -run '^TestAPI$'
   suite "static binary ($arch)" "$root/.github/scripts/extract-binary.sh" "$IMAGE" "$arch" "$bin_dir"
   E2E_BASE_URL="$url" E2E_SECRET="$token" suite "API e2e (live Gateway, $url)" e2e -run '^TestAPI$'
+  suite "zero-downtime rollout" mk_rollout_check "$url" "$token"
   rm -rf "$bin_dir"
 
   printf '\nTest results (%s)\n' "$IMAGE"

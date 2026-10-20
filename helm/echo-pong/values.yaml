@@ -12,6 +12,9 @@ pdb:
   minAvailable: 1
 antiAffinity:
   enabled: true
+# Stop sequence: preStop sleep (endpoints removed), then SIGTERM drain (app: 20s), within the grace period.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30
 
 # Prefer arm64 nodes, fall back to any (README L57). See docs/HELM.md#scheduling
 preferredArch: arm64

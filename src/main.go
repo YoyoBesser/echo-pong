@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
+
+// shutdownTimeout bounds the in-flight drain after SIGTERM; below k8s' 30s grace period.
+const shutdownTimeout = 20 * time.Second
 
 type Response struct {
 	Message   string    `json:"message"`
@@ -217,8 +224,17 @@ func main() {
 	log.Printf("   GET /health - Health check")
 	log.Printf("   GET /      - API documentation")
 
+	// SIGTERM (k8s pod stop) or Ctrl-C: drain, then exit 0. See docs/HELM.md#zero-downtime
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
 	log.Printf("Thinking for 10 seconds before starting the server")
-	time.Sleep(10 * time.Second)
+	select {
+	case <-time.After(10 * time.Second):
+	case <-ctx.Done():
+		log.Printf("Shutdown signal received before the server started")
+		return
+	}
 
 	log.Printf("Starting the server")
 
@@ -230,7 +246,20 @@ func main() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	log.Fatal(srv.ListenAndServe())
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Printf("Shutdown signal received, draining in-flight requests")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Graceful shutdown incomplete: %v", err)
+	}
+	log.Printf("Server stopped")
 }
 
 func pingHandler(w http.ResponseWriter, r *http.Request) {

@@ -6,6 +6,7 @@ Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccoun
 |---|---|---|
 | `replicaCount` | `2` | Pods behind the Service |
 | `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | RollingUpdate 0/1, PDB `minAvailable: 1`, on | See [Zero downtime](#zero-downtime) |
+| `preStopSleepSeconds`, `terminationGracePeriodSeconds` | `5`, `30` | See [Zero downtime](#zero-downtime) |
 | `preferredArch` | `arm64` | See [Scheduling](#scheduling) |
 | `resources` | requests 50m / 32Mi, limit 64Mi | See [Resources](#resources) |
 | `networkPolicy.enabled` | `true` | See [Network policy](#network-policy) |
@@ -69,11 +70,13 @@ README L56: "Zero-downtime deployments server must be available and ready at all
 | `pdb.enabled`, `pdb.minAvailable` | `true`, `1` | Node drains and cluster upgrades can't evict the last serving pod |
 | `antiAffinity.enabled` | `true` | Preferred pod anti-affinity on `kubernetes.io/hostname`: replicas spread across nodes when there are several, so one node failure doesn't take both |
 
-Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), this keeps serving pods behind the Service throughout a rollout. Still open:
+A pod is stopped in this order:
 
-- Graceful SIGTERM shutdown in the app (drain in-flight requests).
-- A `preStop` delay, so endpoints are removed before the process stops.
-- The rollout test that proves it ([CI.md#rollout-verification](CI.md#rollout-verification)).
+1. **`preStop` sleep** (`preStopSleepSeconds: 5`). The pod keeps serving while its endpoint is removed from the Service and Envoy stops routing to it. It's a native Kubernetes `sleep` action, so the image needs no shell.
+2. **SIGTERM drain.** The app stops accepting connections and finishes in-flight requests (`http.Server.Shutdown`, up to 20s), then exits 0.
+3. **Grace period.** `terminationGracePeriodSeconds: 30` covers both steps before the kubelet would SIGKILL.
+
+Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), this keeps serving pods behind the Gateway throughout a rollout. [CI.md#rollout-verification](CI.md#rollout-verification) proves it on every PR.
 
 ## Scheduling
 

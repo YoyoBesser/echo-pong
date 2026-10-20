@@ -210,10 +210,13 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           K8S_VERSION: ${{ steps.tools.outputs.k8s-version }}
+          KEEP_CLUSTER: "1"  # rollout check reuses it; the runner is discarded anyway
         run: src/test/e2e/minikube-e2e.sh
-      # TODO: zero-downtime rollout check (README L56). See docs/CI.md#rollout-verification
-      - name: rollout verification
-        run: echo "TODO poll /health + /ping through the Gateway during helm upgrade; fail on any error"
+      # README L56: no failed request through the Gateway during a rolling restart. See docs/CI.md#rollout-verification
+      - id: rollout
+        name: zero-downtime rollout
+        if: ${{ !cancelled() && steps.minikube.outcome == 'success' }}
+        run: src/test/e2e/rollout-check.sh
       - if: always()
         uses: ./.github/actions/record-results
         with:
@@ -222,6 +225,7 @@ jobs:
             tests|CLI e2e|${{ steps.cli.outcome }}|${{ steps.cli.conclusion }}
             tests|API e2e|${{ steps.api.outcome }}|${{ steps.api.conclusion }}
             tests|minikube e2e|${{ steps.minikube.outcome }}|${{ steps.minikube.conclusion }}
+            tests|zero-downtime rollout|${{ steps.rollout.outcome }}|${{ steps.rollout.conclusion }}
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:
