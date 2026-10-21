@@ -6,6 +6,12 @@ Agents and contributors **must append an entry** for every merged PR that change
 app behaviour, tooling, workflows, repo guardrails, or delivery configuration
 (container image, Helm chart). See [`AGENTS.md`](../AGENTS.md) and [`docs/AGENTS.md`](AGENTS.md).
 
+## Contents
+
+- [Format](#format)
+  - [Action needed values](#action-needed-values)
+  - [Entry template](#entry-template)
+
 ## Format
 
 Append entries at the top of the changelog, below this section (newest first). Every entry title uses
@@ -57,6 +63,20 @@ Every PR entry requires:
 ```
 
 ---
+
+### 2026-10-21 - [#2](https://github.com/YoyoBesser/echo-pong/pull/2) - Gate CI, fix every finding, finish the skeleton
+
+**Intent:** Make CI a real guardrail, make the original code and chart pass it without changing app behavior, then close every remaining README requirement.
+
+**Result:** Every check gates and passes, zero-downtime rollouts are proven on each PR, and a tag cuts a scanned multi-arch image release plus binaries.
+
+- **authors:** YoyoBesser
+- **dependencies:** Go toolchain go1.27.3 (`toolchain` in `src/go.mod`, builder `golang:1.27.3`; language version stays `go 1.24`); standalone gosec dropped for golangci-lint's gosec
+- **workflows:** no `continue-on-error` on checks (lint/unit/scans fail fast, e2e runs every suite then fails); `test` runs `go test -race -vet=off ./...`; e2e adds a zero-downtime rollout check, drops the ubuntu/alpine binary suites; real `release.yml` (digest-only build, blocking scan gate, tag, linux/darwin binaries, GitHub Release); `cd.yml` removed (deploys out of scope); app-ci path filter includes `scan-*.yml`; tools cache keyed on `install-ci-tools` + `src/go.mod`
+- **delivery:** `main.go` findings fixed (error handling, `%w`, server timeouts, documented `#nosec`), graceful SIGTERM shutdown, version stamped into the binary (`--version`, `/health`); chart: rolling update 0/1, PDB, anti-affinity, `preStop` sleep, arm64 preferred affinity, resources, ServiceAccount, NetworkPolicy (Envoy-only), optional HPA, `imagePullSecrets`, `values-local.yaml`
+- **guardrails:** gating rules (`docs/CI.md#gating`, `.github/workflows/AGENTS.md`); rollout check fails on any non-200; kube-linter on the chart without the third-party subchart; e2e suites unchanged; docs index `docs/README.md`, `docs/RELEASE.md`, `docs/EXPLAIN.md`, `docs/GITHUB.md`
+- **breaking changes:** app pods accept traffic only from the release's Envoy proxy (NetworkPolicy); `/health` gains a `version` field (additive)
+- **Action needed:** none
 
 ### 2026-10-21 - [#1](https://github.com/YoyoBesser/echo-pong/pull/1) - Home assignment init: CI/CD skeleton, container, chart, e2e and security scans
 

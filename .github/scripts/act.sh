@@ -9,11 +9,12 @@ KEEP_REGISTRY="${KEEP_REGISTRY:-0}"
 
 usage() {
   cat <<'USAGE'
-usage: .github/scripts/act.sh <workflow> [job] [--pr] [--arch amd64|arm64] [-- <extra act args>]
+usage: .github/scripts/act.sh <workflow> [job] [--pr | --tag vX.Y.Z] [--arch amd64|arm64] [-- <extra act args>]
 
   workflow  file name in .github/workflows/ without .yml (app-ci, helm-ci, common-ci, release, cd)
   job       run only this job; act runs its needs first
   --pr      simulate pull_request (head = current branch + HEAD) instead of push
+  --tag T   simulate pushing tag T (for release.yml)
   --arch    run only that matrix arch
 
 env: REGISTRY_PORT (default 5000), KEEP_REGISTRY=1 to leave the local registry running
@@ -22,11 +23,12 @@ USAGE
 
 log() { printf '==> %s\n' "$*" >&2; }
 
-workflow="" job="" event=push arch="" extra=()
+workflow="" job="" event=push arch="" tag="" extra=()
 while (($#)); do
   case "$1" in
     -h | --help) usage; exit 0 ;;
     --pr) event=pull_request ;;
+    --tag) tag="${2:?--tag needs a value}"; shift ;;
     --arch) arch="${2:?--arch needs a value}"; shift ;;
     --) shift; extra=("$@"); break ;;
     -*) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
@@ -60,11 +62,14 @@ if [[ -z "$(docker ps -q -f "name=^$REGISTRY_NAME$")" ]]; then
 fi
 
 event_file="$tmp/event.json"
+# "act": true lets workflows skip steps that would touch real GitHub (e.g. creating a release).
 if [[ "$event" == pull_request ]]; then
   jq -n --arg ref "$(git branch --show-current)" --arg sha "$(git rev-parse HEAD)" \
-    '{pull_request: {head: {ref: $ref, sha: $sha}, base: {ref: "main"}}}' > "$event_file"
+    '{act: true, pull_request: {head: {ref: $ref, sha: $sha}, base: {ref: "main"}}}' > "$event_file"
+elif [[ -n "$tag" ]]; then
+  jq -n --arg ref "refs/tags/$tag" '{act: true, ref: $ref}' > "$event_file"
 else
-  echo '{}' > "$event_file"
+  echo '{"act": true}' > "$event_file"
 fi
 
 args=(

@@ -3,11 +3,6 @@ name: Scan repo
 # Reusable: repo-wide secret scanning, shared by common CI and release. See docs/CI.md#repo-scan
 on:
   workflow_call:
-    inputs:
-      blocking:
-        description: Fail the job on findings. false = report only.
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -25,12 +20,9 @@ jobs:
           suite: repo
       - id: trivy-fs
         name: trivy fs (secrets, working tree)
-        continue-on-error: ${{ !inputs.blocking }}
         run: trivy fs --no-progress --scanners secret --exit-code 1 .
       - id: gitleaks
         name: gitleaks (secrets, git history)
-        if: ${{ !cancelled() }}
-        continue-on-error: ${{ !inputs.blocking }}
         run: gitleaks git --no-banner --redact --exit-code 1 .
       - if: always()
         uses: ./.github/actions/record-results

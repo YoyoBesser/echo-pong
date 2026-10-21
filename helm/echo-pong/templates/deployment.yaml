@@ -3,8 +3,17 @@ kind: Deployment
 metadata:
   name: {{ .Release.Name }}
   labels: {{- include "echo-pong.labels" . | nindent 4 }}
+  annotations:
+    # The env var holds a file path; the secret is a mounted volume. See docs/HELM.md#auth-secret
+    ignore-check.kube-linter.io/env-var-secret: "SECRET_FILE_PATH is a path, not a secret value"
+    {{- if .Values.autoscaling.enabled }}
+    # HPA owns the count; its floor is checked by hpa-minimum-two-replicas. See docs/HELM.md#autoscaling
+    ignore-check.kube-linter.io/minimum-two-replicas: "replicas set by the HPA (minReplicas >= 2)"
+    {{- end }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   {{- with .Values.rollout.strategy }}
   strategy: {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -14,9 +23,23 @@ spec:
     metadata:
       labels: {{- include "echo-pong.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ .Release.Name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      automountServiceAccountToken: false
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if .Values.antiAffinity.enabled }}
       affinity:
+        {{- with .Values.preferredArch }}
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [{{ . }}]}
+        {{- end }}
+        {{- if .Values.antiAffinity.enabled }}
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -24,12 +47,18 @@ spec:
                 topologyKey: kubernetes.io/hostname
                 labelSelector:
                   matchLabels: {{- include "echo-pong.selectorLabels" . | nindent 20 }}
-      {{- end }}
+        {{- end }}
       containers:
         - name: echo-pong
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          # Keep serving while endpoint removal propagates to Envoy. See docs/HELM.md#zero-downtime
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: {{ .Values.preStopSleepSeconds }}
           env:
             - name: SECRET_FILE_PATH
               value: /var/run/secrets/echo-pong/token

@@ -34,6 +34,16 @@ Status: `todo` / `doing` / `done`.
 | 19 | L92, L114 | Later | — |
 | 20 | L115 | Later | — |
 
+## Contents
+
+- [1. Chart securityContext (implement now)](#1-chart-securitycontext-implement-now)
+- [2. Reusable scanning (CI + release)](#2-reusable-scanning-ci--release)
+- [3. `common-ci.yml` with repo-wide scanning](#3-common-ciyml-with-repo-wide-scanning)
+- [4. TODO: zero-downtime rollout settings in chart](#4-todo-zero-downtime-rollout-settings-in-chart)
+- [5. TODO: verify zero-downtime rollout](#5-todo-verify-zero-downtime-rollout)
+- [6–12, 14–20. Later](#612-1420-later)
+- [13. Cleanup workflow](#13-cleanup-workflow)
+
 ## 1. Chart securityContext (implement now)
 
 **Requirement:** README L49 "No containers running as root", L53 "Proper filesystem isolation", L83 "Container Security".

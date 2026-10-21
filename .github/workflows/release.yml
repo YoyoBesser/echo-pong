@@ -1,5 +1,6 @@
 name: Release
 
+# vX.Y.Z tag: build, gate on scans, then tag the image and publish binaries. See docs/RELEASE.md#pipeline
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -30,24 +31,48 @@ jobs:
         with:
           image: ${{ vars.CI_IMAGE }}
 
+  # Pushed by digest only: nothing is tagged until the scans pass. See docs/RELEASE.md#pipeline
   image:
     needs: metadata
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    env:
+      IMAGE: ${{ needs.metadata.outputs.image }}
     steps:
-      - run: echo "TODO build + push multi-arch image to GHCR under the commit SHA (${{ needs.metadata.outputs.short-sha }})"
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
+        with:
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4  # latest: https://github.com/docker/setup-buildx-action/releases (checked 2026-10-21)
+        # Under act, builder must reach act.sh's localhost registry. See docs/LOCAL-TESTING.md#act-wrapper
+        with:
+          driver-opts: ${{ env.ACT && 'network=host' || '' }}
+      - id: build
+        name: docker buildx build + push by digest (amd64, arm64)
+        uses: docker/build-push-action@v7  # latest: https://github.com/docker/build-push-action/releases (checked 2026-10-21)
+        with:
+          context: src
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ github.ref_name }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          sbom: true
+          provenance: mode=max
+          cache-from: type=registry,ref=${{ env.IMAGE }}:main-cache
 
-  # Release gate: same scans as CI, blocking. Nothing is tagged vX.Y.Z unless all pass. See docs/CI.md#reusable-scans
+  # Release gate: same scans as CI, all blocking. See docs/CI.md#reusable-scans
   scan-source:
     needs: metadata
     uses: ./.github/workflows/scan-source.yml
-    with:
-      blocking: true
 
   scan-repo:
     needs: metadata
     uses: ./.github/workflows/scan-repo.yml
-    with:
-      blocking: true
 
   scan-image:
     needs: [metadata, image]
@@ -56,36 +81,95 @@ jobs:
       packages: read
     uses: ./.github/workflows/scan-image.yml
     with:
-      image: ${{ needs.metadata.outputs.image }}:${{ needs.metadata.outputs.sha }}
+      image: ${{ needs.metadata.outputs.image }}@${{ needs.image.outputs.digest }}
       registry: ${{ needs.metadata.outputs.registry }}
-      blocking: true
 
+  # Only after every scan passed: tag the scanned digest. See docs/RELEASE.md#pipeline
   publish:
-    needs: [metadata, scan-source, scan-repo, scan-image]
+    needs: [metadata, image, scan-source, scan-repo, scan-image]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ needs.metadata.outputs.image }}
+      DIGEST: ${{ needs.image.outputs.digest }}
+      TAG: ${{ github.ref_name }}
     steps:
-      - run: echo "TODO retag ${{ needs.metadata.outputs.short-sha }} as ${{ github.ref_name }}, sign image + attach SBOM"
-      - run: echo "TODO package + push Helm chart to GHCR (OCI)"
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
+        with:
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: tag image ${{ github.ref_name }}
+        run: |
+          docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE@$DIGEST"
+          docker buildx imagetools inspect "$IMAGE:$TAG"
 
   binaries:
-    needs: [metadata, scan-source]
+    needs: [metadata, image, scan-source, scan-image]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.metadata.outputs.image }}@${{ needs.image.outputs.digest }}
+      TAG: ${{ github.ref_name }}
     steps:
-      - run: echo "TODO cross-compile linux/darwin x amd64/arm64"
+      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
+      - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
+        with:
+          registry: ${{ needs.metadata.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/install-ci-tools
+        with:
+          suite: release
+      # linux from the scanned image, darwin cross-compiled. See docs/RELEASE.md#binaries
+      - id: binaries
+        name: build release binaries
+        run: .github/scripts/release-binaries.sh "$TAG" "$IMAGE" dist
+      - uses: actions/upload-artifact@v7  # latest: https://github.com/actions/upload-artifact/releases (checked 2026-10-21)
+        # act has no working artifact server. See docs/LOCAL-TESTING.md#act-wrapper
+        continue-on-error: ${{ !!env.ACT }}
+        with:
+          name: release-binaries
+          path: dist/
+          retention-days: 7
+      - if: always()
+        uses: ./.github/actions/record-results
+        with:
+          rows: |
+            tests|release binaries|${{ steps.binaries.outcome }}|${{ steps.binaries.conclusion }}
 
   github-release:
-    needs: [metadata, publish, binaries]
+    needs: [metadata, image, publish, binaries]
+    if: ${{ !github.event.act }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      IMAGE: ${{ needs.metadata.outputs.image }}
+      DIGEST: ${{ needs.image.outputs.digest }}
     steps:
-      - run: echo "TODO publish GitHub Release ${{ github.ref_name }} with binaries"
+      - uses: actions/download-artifact@v8  # latest: https://github.com/actions/download-artifact/releases (checked 2026-10-21)
+        with:
+          name: release-binaries
+          path: dist
+      - name: gh release create
+        run: |
+          echo "Image: \`$IMAGE:$TAG\` (\`$DIGEST\`, linux/amd64 + linux/arm64)" > notes.md
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --generate-notes --verify-tag
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:
-    needs: [metadata, image, scan-source, scan-repo, scan-image, publish, binaries, github-release]
+    needs: [image, scan-source, scan-repo, scan-image, publish, binaries, github-release]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - uses: ./.github/actions/summarize-results
         with:
-          order: scan-source scan-repo scan-image
+          order: scan-source scan-repo scan-image binaries

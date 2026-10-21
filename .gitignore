@@ -48,7 +48,7 @@ ping-pong-app
 # Helm dependency archives (helm dependency build)
 helm/*/charts/
 
-# Extracted binaries (docs/LOCAL-TESTING.md#binary-e2e)
+# Extracted binaries (docs/CI.md#static-binary)
 dist/
 
 # uv environment for .github/ tooling

@@ -68,3 +68,31 @@ mk_wait_gateway() {
   kc rollout status "deployment/${svc#service/}" --timeout=3m >&2 2>/dev/null \
     || kc wait --for=condition=Ready pod -l "gateway.envoyproxy.io/owning-gateway-name=$RELEASE" --timeout=3m >&2
 }
+
+# Poll $1/ping (token $2) every 100ms during a rolling restart; fail on any non-200. See docs/CI.md#rollout-verification
+mk_rollout_check() {
+  local url="$1" token="$2" codes poller total bad
+  codes="$(mktemp)"
+  (
+    while :; do
+      curl -s -o /dev/null -w '%{http_code}\n' --max-time 2 -H "Authorization: Bearer $token" "$url/ping" >>"$codes" || true
+      sleep 0.1
+    done
+  ) &
+  poller=$!
+  sleep 2
+  log "rolling restart of deployment/$RELEASE under load"
+  kc rollout restart "deployment/$RELEASE" >&2
+  kc rollout status "deployment/$RELEASE" --timeout=5m >&2
+  sleep 5 # old pods finish terminating
+  kill "$poller" 2>/dev/null || true
+  wait "$poller" 2>/dev/null || true
+  # Snapshot once: a curl still in flight may append after the poller is killed.
+  local snapshot
+  snapshot="$(cat "$codes")"
+  rm -f "$codes"
+  total="$(grep -c . <<<"$snapshot" || true)"
+  bad="$(grep -cv '^200$' <<<"$snapshot" || true)"
+  log "rollout check: $total requests, $bad not 200 ($(sort <<<"$snapshot" | uniq -c | tr -s ' ' | tr '\n' ','))"
+  [[ "$total" -gt 0 && "$bad" -eq 0 ]]
+}

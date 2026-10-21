@@ -12,7 +12,7 @@ Rules for every workflow in this directory. Repo-wide rules: [../../AGENTS.md](.
 - Images are built once for both arches and go to GHCR as the multi-arch `<image>:<sha>` (full commit SHA). The registry cache is `<branch-slug>-cache`, falling back to `main-cache` ([docs/CI.md#image-tags](../../docs/CI.md#image-tags)). Image names, registry hosts and slugs come from `gather-metadata` outputs, never hand-built.
 - Steps that can't work under act (artifact upload/download) set `continue-on-error: ${{ !!env.ACT }}`: non-fatal locally, blocking on GitHub. Run workflows locally through `.github/scripts/act.sh` ([docs/LOCAL-TESTING.md#act-wrapper](../../docs/LOCAL-TESTING.md#act-wrapper)).
 - Default `permissions: contents: read`. A job that pushes images adds `packages: write`. A job that only pulls adds `packages: read`.
-- Security scans are never inlined. Call [`scan-source.yml`](scan-source.yml) / [`scan-image.yml`](scan-image.yml) / [`scan-repo.yml`](scan-repo.yml) with `blocking:`, so CI and release run identical checks ([docs/CI.md#reusable-scans](../../docs/CI.md#reusable-scans)).
+- Security scans are never inlined. Call [`scan-source.yml`](scan-source.yml) / [`scan-image.yml`](scan-image.yml) / [`scan-repo.yml`](scan-repo.yml), so CI and release run identical checks ([docs/CI.md#reusable-scans](../../docs/CI.md#reusable-scans)).
 - Inside reusable workflows, log in with `${{ github.token }}`, not `secrets.GITHUB_TOKEN`. act doesn't pass secrets into called workflows.
 - Untrusted values (`head_ref`, commit messages, inputs) go through `env:`, never inline `${{ }}` in `run:` ([docs/CI.md#script-injection](../../docs/CI.md#script-injection)).
 
@@ -32,11 +32,15 @@ Every run summary ends with two tables, **Tests** and **Security**: rows are che
 - Check names are identical across jobs and workflows, so one check is one row.
 - Placeholder steps (`echo "TODO ..."`) are not recorded.
 
-Cell values: `✅ pass`, `❌ fail` (blocking), `⚠️ fail (non-blocking)` (failed under `continue-on-error`), `⏭️ skipped`, `🚫 cancelled`.
+Cell values: `✅ pass`, `❌ fail`, `⏭️ skipped` (an earlier check failed fast), `🚫 cancelled`. (`⚠️ fail (non-blocking)` exists for `continue-on-error` steps, which checks must not use.)
 
-## Soft-fail
+## Gating
 
-`continue-on-error: true` is allowed only on check steps, with a `TODO` comment linking [docs/CI.md#soft-fail](../../docs/CI.md#soft-fail). The summary still shows those failures as `⚠️`.
+Every check gates ([docs/CI.md#gating](../../docs/CI.md#gating)):
+
+- No `continue-on-error` on check steps. The only exceptions are act-only artifact steps (`${{ !!env.ACT }}`) and the summary plumbing.
+- Lint, unit, scan and chart-check jobs fail fast: plain sequential steps, so the first failure stops the job.
+- E2E suites all run: every suite step after the first gets `if: ${{ !cancelled() }}`, so the job fails at the end with every failure visible.
 
 ## Before pushing
 
