@@ -38,7 +38,7 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [summary](#build-summary) |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**`, `scripts/**`, `.github/scripts/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [summary](#build-summary) |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
 | [`common-ci.yml`](../.github/workflows/common-ci.yml) | every change (no path filter) | [actionlint, ruff, pytest at 100% coverage, doc links](#common-ci), [repo secret scan](#repo-scan), [summary](#build-summary) |
 
@@ -252,6 +252,8 @@ The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), 
 ## Static binary
 
 The release binary is the one inside the image, not a separate build. For each arch, `build` runs [`extract-binary.sh`](../.github/scripts/extract-binary.sh): `docker create --platform linux/<arch>` on the pushed index, then `docker cp` of `/usr/local/bin/ping-pong-app`. It fails unless `file` reports `statically linked`. The container and the binary release can't drift: they are the same bytes.
+
+For a registry index, the script first resolves the arch's own manifest digest (`docker buildx imagetools inspect --raw`) and pulls `image@<that digest>`. Pulling one index ref for two platforms in a row can fail on the runner's Docker engine with `cannot overwrite digest`. That broke the `v0.1.0` release's binaries job, after the image was already tagged.
 
 The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
 

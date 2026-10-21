@@ -9,6 +9,8 @@ on:
       - helm/**
       - .github/workflows/app-ci.yml
       - .github/workflows/scan-*.yml
+      - .github/scripts/**
+      - scripts/**
       - .github/actions/**
   push:
     branches: [main]
