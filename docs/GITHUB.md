@@ -189,7 +189,7 @@ flowchart LR
   subgraph j_publish["publish"]
     direction TB
     j_publish_0[.github/actions/install-ci-tools]
-    j_publish_1("tag vX.Y.Z<br>cosign sign<br>helm package + push (OCI)"):::do
+    j_publish_1("tag vX.Y.Z<br>helm package + push (OCI)"):::do
     j_publish_0 --> j_publish_1
   end
   subgraph j_binaries["binaries"]

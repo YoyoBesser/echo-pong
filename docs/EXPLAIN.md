@@ -60,7 +60,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 | `app-ci.yml` | Go lint, unit tests, SAST/SCA, multi-arch build to GHCR, image scan, e2e (container, static binary, minikube, zero-downtime rollout) on amd64 + arm64 |
 | `helm-ci.yml` | helm lint, kubeconform, kube-linter, trivy config on the rendered chart |
 | `common-ci.yml` | actionlint, ruff, pytest (100% coverage), doc links, repo secret scan. No path filter |
-| `release.yml` | On `vX.Y.Z` tag: build by digest, same scans as gate, then tag, sign, chart, binaries, GitHub Release ([RELEASE.md](RELEASE.md)) |
+| `release.yml` | On `vX.Y.Z` tag: build by digest, same scans as gate, then tag, chart, binaries, GitHub Release ([RELEASE.md](RELEASE.md)) |
 | `cleanup.yml` | Weekly GHCR retention |
 
 - **Gating:** lint, tests and scans fail fast, so later jobs don't spend runner time. e2e runs every suite, then fails if any failed, so one run shows everything broken ([CI.md#gating](CI.md#gating)).
@@ -94,7 +94,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 - **No `latest`:** kube-linter's `latest-tag` check blocks it in the chart. Deploys reference an immutable version.
 - **Chart:** version `X.Y.Z`, `appVersion: vX.Y.Z` (the default image tag), pushed to GHCR as OCI ([RELEASE.md#chart](RELEASE.md#chart)).
 - **Binary:** `-ldflags -X` stamps the version, so `--version` and `/health` report the tag ([CONTAINER.md#version](CONTAINER.md#version)).
-- **Release:** pushing `vX.Y.Z` creates a GitHub Release with linux/darwin binaries and checksums. The image is cosign-signed ([RELEASE.md#signing](RELEASE.md#signing)).
+- **Release:** pushing `vX.Y.Z` creates a GitHub Release with linux/darwin binaries and checksums.
 - **Deploys:** pin by digest (`image@sha256:...`), so a re-pushed tag can't change what runs.
 
 ## Going cloud with EKS

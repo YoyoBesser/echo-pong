@@ -68,11 +68,11 @@ Every PR entry requires:
 
 **Intent:** Make CI a real guardrail, make the original code and chart pass it without changing app behavior, then close every remaining README requirement.
 
-**Result:** Every check gates and passes, zero-downtime rollouts are proven on each PR, and a tag cuts a scanned, signed multi-arch release with chart and binaries.
+**Result:** Every check gates and passes, zero-downtime rollouts are proven on each PR, and a tag cuts a scanned multi-arch release with chart and binaries.
 
 - **authors:** YoyoBesser
-- **dependencies:** Go toolchain go1.27.3 (`toolchain` in `src/go.mod`, builder `golang:1.27.3`; language version stays `go 1.24`); cosign v3.1.4 pinned; standalone gosec dropped for golangci-lint's gosec
-- **workflows:** no `continue-on-error` on checks (lint/unit/scans fail fast, e2e runs every suite then fails); `test` runs `go test -race -vet=off ./...`; e2e adds a zero-downtime rollout check, drops the ubuntu/alpine binary suites; real `release.yml` (digest-only build, blocking scan gate, cosign keyless tag, OCI chart, linux/darwin binaries, GitHub Release); `cd.yml` removed (deploys out of scope); app-ci path filter includes `scan-*.yml`; tools cache keyed on `install-ci-tools` + `src/go.mod`
+- **dependencies:** Go toolchain go1.27.3 (`toolchain` in `src/go.mod`, builder `golang:1.27.3`; language version stays `go 1.24`); standalone gosec dropped for golangci-lint's gosec
+- **workflows:** no `continue-on-error` on checks (lint/unit/scans fail fast, e2e runs every suite then fails); `test` runs `go test -race -vet=off ./...`; e2e adds a zero-downtime rollout check, drops the ubuntu/alpine binary suites; real `release.yml` (digest-only build, blocking scan gate, tag, OCI chart, linux/darwin binaries, GitHub Release); `cd.yml` removed (deploys out of scope); app-ci path filter includes `scan-*.yml`; tools cache keyed on `install-ci-tools` + `src/go.mod`
 - **delivery:** `main.go` findings fixed (error handling, `%w`, server timeouts, documented `#nosec`), graceful SIGTERM shutdown, version stamped into the binary (`--version`, `/health`); chart: rolling update 0/1, PDB, anti-affinity, `preStop` sleep, arm64 preferred affinity, resources, ServiceAccount, NetworkPolicy (Envoy-only), optional HPA, `imagePullSecrets`, `values-local.yaml`
 - **guardrails:** gating rules (`docs/CI.md#gating`, `.github/workflows/AGENTS.md`); rollout check fails on any non-200; kube-linter on the chart without the third-party subchart; e2e suites unchanged; docs index `docs/README.md`, `docs/RELEASE.md`, `docs/EXPLAIN.md`, `docs/GITHUB.md`
 - **breaking changes:** app pods accept traffic only from the release's Envoy proxy (NetworkPolicy); `/health` gains a `version` field (additive)

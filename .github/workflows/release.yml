@@ -84,14 +84,13 @@ jobs:
       image: ${{ needs.metadata.outputs.image }}@${{ needs.image.outputs.digest }}
       registry: ${{ needs.metadata.outputs.registry }}
 
-  # Only after every scan passed: tag the scanned digest, sign it, push the chart. See docs/RELEASE.md#pipeline
+  # Only after every scan passed: tag the scanned digest, push the chart. See docs/RELEASE.md#pipeline
   publish:
     needs: [metadata, image, scan-source, scan-repo, scan-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      id-token: write  # cosign keyless signing (Sigstore OIDC)
     env:
       IMAGE: ${{ needs.metadata.outputs.image }}
       DIGEST: ${{ needs.image.outputs.digest }}
@@ -111,10 +110,6 @@ jobs:
         run: |
           docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE@$DIGEST"
           docker buildx imagetools inspect "$IMAGE:$TAG"
-      # Keyless: no keys to manage; verify with cosign verify. See docs/RELEASE.md#signing
-      - name: cosign sign
-        if: ${{ !env.ACT }}
-        run: cosign sign --yes "$IMAGE@$DIGEST"
       - name: helm package + push (OCI)
         env:
           GH_ACTOR: ${{ github.actor }}
@@ -176,7 +171,7 @@ jobs:
       - name: gh release create
         run: |
           {
-            echo "Image: \`$IMAGE:$TAG\` (\`$DIGEST\`, linux/amd64 + linux/arm64, cosign-signed)"
+            echo "Image: \`$IMAGE:$TAG\` (\`$DIGEST\`, linux/amd64 + linux/arm64)"
             echo
             echo "Chart: \`helm install echo-pong oci://${IMAGE%/*}/charts/echo-pong --version ${TAG#v}\`"
           } > notes.md

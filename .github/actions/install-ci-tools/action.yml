@@ -3,7 +3,7 @@ description: Install the pinned toolchain for one CI suite, cached across runs. 
 
 inputs:
   suite:
-    description: "Which toolchain to install: app (Go, golangci-lint incl. gosec, staticcheck, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks), release (Go, helm, cosign) or github (uv + locked Python deps, actionlint)."
+    description: "Which toolchain to install: app (Go, golangci-lint incl. gosec, staticcheck, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks), release (Go, helm) or github (uv + locked Python deps, actionlint)."
     required: true
 
 outputs:
@@ -33,7 +33,6 @@ runs:
         trivy=v0.76.0                    # latest: https://github.com/aquasecurity/trivy/releases (checked 2026-10-21)
         trivy-plugin-govulncheck=v0.1.4  # latest: https://github.com/DataDog/trivy-plugin-govulncheck/releases (checked 2026-10-21)
         gitleaks=v8.30.1                 # latest: https://github.com/gitleaks/gitleaks/releases (checked 2026-10-21)
-        cosign=v3.1.4                    # latest: https://github.com/sigstore/cosign/releases (checked 2026-10-21)
         uv=0.13.4                        # latest: https://github.com/astral-sh/uv/releases (checked 2026-10-21)
         actionlint=v1.7.12               # latest: https://github.com/rhysd/actionlint/releases (checked 2026-10-21)
         k8s-version=1.37.0               # newest in kubeconform schemas + minikube 'stable'; dl.k8s.io stable is v1.37.1 (checked 2026-10-21)
@@ -185,17 +184,6 @@ runs:
         cd "$RUNNER_TEMP"
         curl -fsSLO "$url/$tgz" && curl -fsSL "$url/gitleaks_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
         tar -xzf "$tgz" -C "$CI_TOOLS_BIN" gitleaks
-
-    - if: inputs.suite == 'release' && steps.tools-cache.outputs.cache-hit != 'true'
-      shell: bash
-      env:
-        COSIGN_VERSION: ${{ steps.pins.outputs.cosign }}
-      run: |
-        set -euo pipefail
-        bin="cosign-linux-$CI_TOOLS_ARCH" url="https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION"
-        cd "$RUNNER_TEMP"
-        curl -fsSLO "$url/$bin" && curl -fsSL "$url/cosign_checksums.txt" | grep " $bin\$" | sha256sum -c -
-        install -m 0755 "$bin" "$CI_TOOLS_BIN/cosign"
 
     # Python + ruff/pytest versions come from .github/.python-version and uv.lock. See docs/CI.md#common-ci
     - if: inputs.suite == 'github'
