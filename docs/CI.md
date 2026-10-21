@@ -242,7 +242,7 @@ The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), 
 [`src/test/e2e/minikube-e2e.sh`](../src/test/e2e/minikube-e2e.sh) does the whole flow, locally and in CI:
 
 1. `minikube start` (docker driver, `k8s-version` from [Tool pins](#tool-pins)), then `minikube image load` the CI image.
-2. `helm dependency build` the in-repo chart (`CHART_REF` overrides it, e.g. with a released OCI chart).
+2. `helm dependency build` the in-repo chart (`CHART_REF` overrides the path).
 3. Create the namespace with [Pod Security Admission](HELM.md#pod-security-admission) `restricted` enforced, and the [auth Secret](HELM.md#auth-secret) holding a random token. On a kept cluster, the existing token is reused, because the app reads its secret only at startup.
 4. `helm upgrade --install --wait` with the CI image and `image.pullPolicy=Never`.
 5. Wait for the Gateway to be `Programmed` and the Envoy proxy pods to be ready. The controller creates them after install, so `helm --wait` doesn't cover them.

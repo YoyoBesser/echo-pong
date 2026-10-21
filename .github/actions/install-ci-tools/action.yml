@@ -3,7 +3,7 @@ description: Install the pinned toolchain for one CI suite, cached across runs. 
 
 inputs:
   suite:
-    description: "Which toolchain to install: app (Go, golangci-lint incl. gosec, staticcheck, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks), release (Go, helm) or github (uv + locked Python deps, actionlint)."
+    description: "Which toolchain to install: app (Go, golangci-lint incl. gosec, staticcheck, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks), release (Go) or github (uv + locked Python deps, actionlint)."
     required: true
 
 outputs:
@@ -86,7 +86,7 @@ runs:
         tar -xzf "$sc" && mv staticcheck/staticcheck "$bin/"
         GOBIN="$bin" GOTOOLCHAIN=auto go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
 
-    - if: (inputs.suite == 'helm' || inputs.suite == 'minikube' || inputs.suite == 'release') && steps.tools-cache.outputs.cache-hit != 'true'
+    - if: (inputs.suite == 'helm' || inputs.suite == 'minikube') && steps.tools-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         HELM_VERSION: ${{ steps.pins.outputs.helm }}

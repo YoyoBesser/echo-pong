@@ -89,12 +89,10 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L63](../README.md?plain=1#L63): Images stored in GitHub Container Registry**
   - [x] CI pushes every commit to `ghcr.io/yoyobesser/echo-pong:<sha>` (multi-arch), registry build cache `<branch-slug>-cache` / `main-cache` ([CI.md#image-tags](CI.md#image-tags))
   - [x] `release.yml` tags `ghcr.io/yoyobesser/echo-pong:vX.Y.Z` ([RELEASE.md#versioning](RELEASE.md#versioning))
-  - [x] Chart pushed to `oci://ghcr.io/yoyobesser/charts/echo-pong` ([RELEASE.md#chart](RELEASE.md#chart))
 - **[L64](../README.md?plain=1#L64): Versioned releases with tags**
   - [x] `release.yml` triggers on `vX.Y.Z` tags
   - [x] kube-linter: `latest-tag`
   - [x] Version injected into binary (`--version`, `/health`) ([CONTAINER.md#version](CONTAINER.md#version))
-  - [x] Chart version tracks app version (`X.Y.Z` / `appVersion: vX.Y.Z`)
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
   - [x] linux amd64/arm64 binary = the image's binary, verified static ([CI.md#static-binary](CI.md#static-binary))
   - [x] linux + cross-compiled darwin amd64/arm64 binaries with checksums on GitHub Releases ([RELEASE.md#binaries](RELEASE.md#binaries))
@@ -117,7 +115,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Tool, Go, minikube, trivy DB and schema downloads cached across runs ([CI.md#tool-cache](CI.md#tool-cache))
   - [x] Every check gating: lint, unit tests and scans fail fast; e2e runs all suites, then fails on any ([CI.md#gating](CI.md#gating))
   - [x] Fixed the existing `main.go` findings (golangci-lint, `go vet`, gosec) without changing behavior; e2e untouched ([CI.md#gosec-exceptions](CI.md#gosec-exceptions))
-  - [x] `release.yml`: digest-only build, scan gate, tag, chart, binaries ([RELEASE.md](RELEASE.md)). Deploys are out of scope: no CD workflow
+  - [x] `release.yml`: digest-only build, scan gate, tag, binaries ([RELEASE.md](RELEASE.md)). Deploys are out of scope: no CD workflow
 - **[L86](../README.md?plain=1#L86): Multi-Architecture builds**: see L62
 - **[L87](../README.md?plain=1#L87): Security Scanning and release prevention for critical and high vulnerabilities**: see L50–L51
 - **[L90](../README.md?plain=1#L90)–[L94](../README.md?plain=1#L94): Architecture decisions, Scaling strategy, Cloud deployment considerations, Security measures, Maintaining image versions and tags and removing old ones**

@@ -189,7 +189,7 @@ flowchart LR
   subgraph j_publish["publish"]
     direction TB
     j_publish_0[.github/actions/install-ci-tools]
-    j_publish_1("tag vX.Y.Z<br>helm package + push (OCI)"):::do
+    j_publish_1("tag vX.Y.Z"):::do
     j_publish_0 --> j_publish_1
   end
   subgraph j_binaries["binaries"]
@@ -301,7 +301,7 @@ flowchart LR
 | [`app-ci.yml`](../.github/workflows/app-ci.yml) | PR/push to `main` on `src/**`, `helm/**`, itself, `scan-*.yml`, `.github/actions/**`; manual | `metadata`, `lint`, `test`, `build`, `scan-source`, `scan-image`, `e2e-tests` (amd64, arm64), `summary` | `scan-source.yml`, `scan-image.yml`; all four actions; `extract-binary.sh`, `minikube-e2e.sh`, `rollout-check.sh` |
 | [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | PR/push to `main` on `helm/**`, itself, `.github/actions/**`; manual | `metadata`, `lint`, `summary` | all four actions |
 | [`common-ci.yml`](../.github/workflows/common-ci.yml) | every PR/push to `main` (no path filter); manual | `metadata`, `lint`, `test`, `doc-links`, `scan-repo`, `summary` | `scan-repo.yml`; all four actions; `check_doc_links.py` |
-| [`release.yml`](../.github/workflows/release.yml) | push of tag `vX.Y.Z` | `metadata`, `image`, `scan-source`, `scan-repo`, `scan-image`, `publish`, `binaries`, `github-release`, `summary` | all three scans; all four actions; `publish-chart.sh`, `release-binaries.sh` |
+| [`release.yml`](../.github/workflows/release.yml) | push of tag `vX.Y.Z` | `metadata`, `image`, `scan-source`, `scan-repo`, `scan-image`, `publish`, `binaries`, `github-release`, `summary` | all three scans; all four actions; `release-binaries.sh` |
 | [`cleanup.yml`](../.github/workflows/cleanup.yml) | weekly (Mon 03:17 UTC); manual with `dry-run`, `max-age-days` | `metadata`, `cleanup`, `summary` | `gather-metadata`, `install-ci-tools`, `summarize-results`; `ghcr_cleanup.py` |
 | [`scan-source.yml`](../.github/workflows/scan-source.yml) | `workflow_call` | `scan-source` (gosec, govulncheck) | `install-ci-tools` (`app`), `record-results` |
 | [`scan-image.yml`](../.github/workflows/scan-image.yml) | `workflow_call`, inputs `image`, `registry` | `scan-image` (amd64, arm64) | `install-ci-tools` (`scan`), `record-results`; `trivy-image.sh` |
@@ -329,6 +329,5 @@ flowchart LR
 | [`check_doc_links.py`](../.github/scripts/check_doc_links.py) | Checks doc links and anchors ([CI.md#doc-links](CI.md#doc-links)) | `common-ci.yml` `doc-links` |
 | [`ghcr_cleanup.py`](../.github/scripts/ghcr_cleanup.py) | GHCR retention policy ([CI.md#image-cleanup](CI.md#image-cleanup)) | `cleanup.yml` |
 | [`render.py`](../.github/actions/summarize-results/render.py) | Renders result rows as Markdown tables | `summarize-results` |
-| [`publish-chart.sh`](../.github/scripts/publish-chart.sh) | Packages the chart at the release version, pushes it to GHCR (OCI) | `release.yml` `publish` |
 | [`release-binaries.sh`](../.github/scripts/release-binaries.sh) | linux binaries from the scanned image, darwin cross-compiled | `release.yml` `binaries` |
 | [`act.sh`](../.github/scripts/act.sh) | Runs a workflow locally with act ([LOCAL-TESTING.md#act-wrapper](LOCAL-TESTING.md#act-wrapper)) | developers |

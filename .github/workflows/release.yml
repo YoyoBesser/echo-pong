@@ -1,6 +1,6 @@
 name: Release
 
-# vX.Y.Z tag: build, gate on scans, then tag image + chart + binaries. See docs/RELEASE.md#pipeline
+# vX.Y.Z tag: build, gate on scans, then tag the image and publish binaries. See docs/RELEASE.md#pipeline
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -84,7 +84,7 @@ jobs:
       image: ${{ needs.metadata.outputs.image }}@${{ needs.image.outputs.digest }}
       registry: ${{ needs.metadata.outputs.registry }}
 
-  # Only after every scan passed: tag the scanned digest, push the chart. See docs/RELEASE.md#pipeline
+  # Only after every scan passed: tag the scanned digest. See docs/RELEASE.md#pipeline
   publish:
     needs: [metadata, image, scan-source, scan-repo, scan-image]
     runs-on: ubuntu-latest
@@ -94,27 +94,17 @@ jobs:
     env:
       IMAGE: ${{ needs.metadata.outputs.image }}
       DIGEST: ${{ needs.image.outputs.digest }}
-      REGISTRY: ${{ needs.metadata.outputs.registry }}
       TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - uses: docker/login-action@v4  # latest: https://github.com/docker/login-action/releases (checked 2026-10-21)
         with:
           registry: ${{ needs.metadata.outputs.registry }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/install-ci-tools
-        with:
-          suite: release
       - name: tag image ${{ github.ref_name }}
         run: |
           docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE@$DIGEST"
           docker buildx imagetools inspect "$IMAGE:$TAG"
-      - name: helm package + push (OCI)
-        env:
-          GH_ACTOR: ${{ github.actor }}
-          GH_TOKEN: ${{ github.token }}
-        run: .github/scripts/publish-chart.sh "$TAG" "$IMAGE" "$REGISTRY"
 
   binaries:
     needs: [metadata, image, scan-source, scan-image]
@@ -170,11 +160,7 @@ jobs:
           path: dist
       - name: gh release create
         run: |
-          {
-            echo "Image: \`$IMAGE:$TAG\` (\`$DIGEST\`, linux/amd64 + linux/arm64)"
-            echo
-            echo "Chart: \`helm install echo-pong oci://${IMAGE%/*}/charts/echo-pong --version ${TAG#v}\`"
-          } > notes.md
+          echo "Image: \`$IMAGE:$TAG\` (\`$DIGEST\`, linux/amd64 + linux/arm64)" > notes.md
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --generate-notes --verify-tag
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
