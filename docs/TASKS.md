@@ -82,7 +82,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L64](../README.md?plain=1#L64): Versioned releases with tags**
   - [x] `release.yml` triggers on `vX.Y.Z` tags
   - [x] kube-linter: `latest-tag`
-  - [ ] Version injected into binary; chart version tracks app version
+  - [x] Version injected into binary (`--version`, `/health`) ([CONTAINER.md#version](CONTAINER.md#version))
+  - [ ] Chart version tracks app version (release)
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
   - [x] linux amd64/arm64 binary = the image's binary, verified static ([CI.md#static-binary](CI.md#static-binary))
   - [ ] Publish linux binaries + cross-compiled darwin amd64/arm64 on GitHub Releases

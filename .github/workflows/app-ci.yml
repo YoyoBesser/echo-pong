@@ -116,6 +116,7 @@ jobs:
         with:
           context: src
           platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ needs.metadata.outputs.short-sha }}
           push: true
           provenance: false
           tags: ${{ env.TAG }}

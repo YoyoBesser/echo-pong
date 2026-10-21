@@ -113,7 +113,7 @@ if [[ -n "$tag" ]]; then
 else
   IMAGE="echo-pong:dev-$(git -C "$root" rev-parse --short HEAD)$(git -C "$root" diff --quiet || echo -dirty)"
   log "build $IMAGE from src/"
-  docker buildx build --quiet --load -t "$IMAGE" "$root/src" >/dev/null
+  docker buildx build --quiet --load --build-arg "VERSION=${IMAGE#echo-pong:}" -t "$IMAGE" "$root/src" >/dev/null
 fi
 
 mk_start

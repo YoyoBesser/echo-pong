@@ -27,11 +27,15 @@ type Response struct {
 
 var secret string
 
+// version is set at build time: -ldflags "-X main.version=...". See docs/CONTAINER.md#version
+var version = "dev"
+
 // CLI flags
 var (
 	mode     = flag.String("mode", "server", "Mode to run in: 'server' or 'cli'")
 	password = flag.String("password", "", "Password for CLI authentication")
 	help     = flag.Bool("help", false, "Show help information")
+	showVer  = flag.Bool("version", false, "Print the version and exit")
 )
 
 // readSecretFromFile reads the secret from the file path specified by environment variable
@@ -172,6 +176,7 @@ FLAGS:
   --mode      Mode to run in: 'server' or 'cli' (default: server)
   --password  Password for CLI authentication (required for CLI mode)
   --help      Show this help information
+  --version   Print the version and exit
 
 EXAMPLES:
   ./ping-pong-app --mode=cli --password=mysecret ping
@@ -187,6 +192,11 @@ ENVIRONMENT VARIABLES:
 func main() {
 	// Parse CLI flags first
 	flag.Parse()
+
+	if *showVer {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
 	if *help {
 		printCLIHelp()
@@ -217,7 +227,7 @@ func main() {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/", rootHandler)
 
-	log.Printf("🏓 Ping-Pong server starting on port %s", port) // #nosec G706 -- operator-supplied PORT
+	log.Printf("🏓 Ping-Pong server %s starting on port %s", version, port) // #nosec G706 -- operator-supplied PORT
 	log.Printf("📍 Available endpoints:")
 	log.Printf("   GET /ping  - Returns pong (🔐 Auth required)")
 	log.Printf("   GET /pong  - Returns ping (🔐 Auth required)")
@@ -306,6 +316,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		"timestamp": time.Now(),
 		"uptime":    "running",
 		"service":   "ping-pong-game",
+		"version":   version,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

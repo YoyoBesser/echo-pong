@@ -18,9 +18,11 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/busybox
 # latest: https://go.dev/dl/ (checked 2026-10-21)
 FROM --platform=$BUILDPLATFORM golang:1.27.3 AS build
 ARG TARGETOS TARGETARCH
+# Stamped into the binary (--version, /health). See docs/CONTAINER.md#version
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod *.go ./
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/ping-pong-app .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/ping-pong-app .
 
 FROM base
 COPY --from=build /out/ping-pong-app /usr/local/bin/ping-pong-app

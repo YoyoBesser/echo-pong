@@ -28,6 +28,18 @@ The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGE
 
 The language version stays 1.24, so the code still builds with any Go ≥ 1.24. CI picks the toolchain from the same line (setup-go reads `toolchain`), so the linters, govulncheck and the image all see the same stdlib. Bump both lines together.
 
+## Version
+
+The binary carries its version, stamped at build time with `-ldflags "-X main.version=$VERSION"` from the Dockerfile's `VERSION` build arg (default `dev`):
+
+| Built by | `VERSION` |
+|---|---|
+| CI (`app-ci.yml`) | commit short SHA |
+| Release (`release.yml`) | the tag, e.g. `v1.2.3` |
+| `scripts/minikube-up.sh` | `dev-<short-sha>[-dirty]` |
+
+It shows up in `ping-pong-app --version`, the startup log line, and the `version` field of `/health`. That last one lets you check what a cluster is actually running: `curl <gateway>/health`.
+
 ## Non-root
 
 `USER 65532:65532` is numeric on purpose. Kubernetes `runAsNonRoot: true` refuses to start a container whose image user is a name (`nonroot`), because the kubelet can't verify that a name isn't UID 0. A numeric UID can be checked.
