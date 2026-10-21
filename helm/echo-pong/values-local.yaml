@@ -1,0 +1,6 @@
+# minikube via scripts/minikube-up.sh: Envoy as LoadBalancer for minikube tunnel. See docs/HELM.md#environments
+gateway:
+  serviceType: LoadBalancer
+  port: 8080
+image:
+  pullPolicy: Never  # image is loaded into minikube, not pulled

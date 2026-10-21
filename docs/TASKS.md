@@ -67,7 +67,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] NetworkPolicy: app accepts traffic only from Envoy; enforced on minikube ([HELM.md#network-policy](HELM.md#network-policy))
 - **[L59](../README.md?plain=1#L59): Cluster can pull from registry**
   - [x] e2e preloads the image (`pullPolicy: Never`)
-  - [ ] Public GHCR package, or `imagePullSecrets` if private
+  - [x] Chart `imagePullSecrets` for a private GHCR package; minikube flows preload the image ([HELM.md#image-pull](HELM.md#image-pull))
 
 ## CI/CD
 
@@ -95,7 +95,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Helm chart, `helm lint --strict`, `kubeconform -strict` incl. CRDs ([CI.md#chart-lint](CI.md#chart-lint))
   - [x] README-traced kube-linter policy, gating ([CI.md#gating](CI.md#gating))
   - [x] Chart passes the policy: resources, ServiceAccount (no token automount), NetworkPolicy ([HELM.md#resources](HELM.md#resources))
-  - [ ] HPA, `values-<env>.yaml`
+  - [x] HPA (on in prod) and `values-local.yaml` / `values-prod.yaml`, all linted in CI ([HELM.md#autoscaling](HELM.md#autoscaling), [HELM.md#environments](HELM.md#environments))
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
   - [x] `app-ci.yml` + `helm-ci.yml` + `common-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
   - [x] Tests + Security summary tables in every run ([CI.md#build-summary](CI.md#build-summary))

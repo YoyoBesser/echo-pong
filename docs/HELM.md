@@ -1,10 +1,13 @@
 # Helm
 
-Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, the Gateway API objects, and the Envoy Gateway subchart. It passes the [kube-linter policy](CI.md#kube-linter-policy) and the [trivy gate](CI.md#trivy-config).
+Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, optional HPA, the Gateway API objects, and the Envoy Gateway subchart, plus per-environment values ([Environments](#environments)). It passes the [kube-linter policy](CI.md#kube-linter-policy) and the [trivy gate](CI.md#trivy-config).
 
 | Value | Default | Purpose |
 |---|---|---|
-| `replicaCount` | `2` | Pods behind the Service |
+| `replicaCount` | `2` | Pods behind the Service (ignored when autoscaling) |
+| `autoscaling.*` | off; min 2, max 6, 70% CPU | See [Autoscaling](#autoscaling) |
+| `imagePullSecrets` | `[]` | See [Image pull](#image-pull) |
+| `gateway.serviceAnnotations` | `{}` | Annotations on the Envoy Service, e.g. AWS NLB settings |
 | `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | RollingUpdate 0/1, PDB `minAvailable: 1`, on | See [Zero downtime](#zero-downtime) |
 | `preStopSleepSeconds`, `terminationGracePeriodSeconds` | `5`, `30` | See [Zero downtime](#zero-downtime) |
 | `preferredArch` | `arm64` | See [Scheduling](#scheduling) |
@@ -77,6 +80,38 @@ A pod is stopped in this order:
 3. **Grace period.** `terminationGracePeriodSeconds: 30` covers both steps before the kubelet would SIGKILL.
 
 Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), this keeps serving pods behind the Gateway throughout a rollout. [CI.md#rollout-verification](CI.md#rollout-verification) proves it on every PR.
+
+## Autoscaling
+
+`autoscaling.enabled` adds a HorizontalPodAutoscaler (`autoscaling/v2`) on CPU utilization (`targetCPUUtilizationPercentage: 70`), between `minReplicas` and `maxReplicas`. With autoscaling on, the Deployment leaves out `replicas`, so `helm upgrade` doesn't reset what the HPA chose.
+
+kube-linter's `minimum-two-replicas` would then flag the Deployment, so it carries an exception annotation. The floor is still enforced on the HPA by `hpa-minimum-two-replicas` and on the PDB by `pdb-min-available`: rendering with `minReplicas: 1` fails both.
+
+It's off in the base values because an HPA needs metrics-server, which a bare minikube doesn't run. It's on in `values-prod.yaml` (EKS ships metrics-server as an add-on).
+
+## Environments
+
+Base `values.yaml` holds secure, cluster-agnostic defaults. Each environment overrides only what differs:
+
+| File | For | Overrides |
+|---|---|---|
+| (none) | CI minikube e2e | none: ClusterIP, fixed 2 replicas |
+| [`values-local.yaml`](../helm/echo-pong/values-local.yaml) | [`scripts/minikube-up.sh`](LOCAL-TESTING.md#minikube-up) | Envoy as `LoadBalancer` on 8080 for `minikube tunnel`; `pullPolicy: Never` (image loaded into minikube) |
+| [`values-prod.yaml`](../helm/echo-pong/values-prod.yaml) | EKS | Autoscaling 3–10; Envoy `LoadBalancer` with AWS Load Balancer Controller annotations (internet-facing NLB, IP targets); hostname; higher CPU request |
+
+Helm CI lints, renders, schema-checks, policy-checks and trivy-gates every one of them ([CI.md#chart-lint](CI.md#chart-lint)).
+
+## Image pull
+
+README L59: "Cluster can pull from registry." Images are in GHCR. A public package needs nothing. A private one needs a `kubernetes.io/dockerconfigjson` Secret in the namespace, listed in `imagePullSecrets`:
+
+```sh
+kubectl -n echo-pong create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username=<user> --docker-password=<token with read:packages>
+helm upgrade --install echo-pong helm/echo-pong --set 'imagePullSecrets[0].name=ghcr-pull'
+```
+
+The minikube flows load the image into the cluster instead (`pullPolicy: Never`), so they don't need it. On EKS, either make the package public or mirror it to ECR and pull with the node role. That second option is also how teams worldwide get fast pulls (see [EXPLAIN.md](EXPLAIN.md)).
 
 ## Scheduling
 

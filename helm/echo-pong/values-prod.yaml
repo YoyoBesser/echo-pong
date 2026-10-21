@@ -1,0 +1,18 @@
+# EKS: NLB in front of Envoy, autoscaling, real hostname. See docs/HELM.md#environments
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+gateway:
+  serviceType: LoadBalancer
+  serviceAnnotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+  hostnames: [echo-pong.example.com]
+resources:
+  requests:
+    cpu: 100m
+    memory: 32Mi
+  limits:
+    memory: 64Mi

@@ -1,4 +1,10 @@
+# Fixed replicas unless autoscaling.enabled (then the HPA owns the count). See docs/HELM.md#autoscaling
 replicaCount: 2
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
 
 # Zero-downtime rollouts. See docs/HELM.md#zero-downtime
 rollout:
@@ -35,6 +41,8 @@ image:
   repository: ghcr.io/yoyobesser/echo-pong
   tag: ""
   pullPolicy: IfNotPresent
+# Registry credentials if the GHCR package is private (README L59). See docs/HELM.md#image-pull
+imagePullSecrets: []
 
 # Existing Secret with key `token`, mounted as the app's secret file. See docs/HELM.md#auth-secret
 auth:
@@ -62,6 +70,7 @@ service:
 gateway:
   className: echo-pong
   serviceType: ClusterIP
+  serviceAnnotations: {}
   port: 80
   hostnames: []
 

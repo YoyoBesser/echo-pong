@@ -6,8 +6,14 @@ metadata:
   annotations:
     # The env var holds a file path; the secret is a mounted volume. See docs/HELM.md#auth-secret
     ignore-check.kube-linter.io/env-var-secret: "SECRET_FILE_PATH is a path, not a secret value"
+    {{- if .Values.autoscaling.enabled }}
+    # HPA owns the count; its floor is checked by hpa-minimum-two-replicas. See docs/HELM.md#autoscaling
+    ignore-check.kube-linter.io/minimum-two-replicas: "replicas set by the HPA (minReplicas >= 2)"
+    {{- end }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   {{- with .Values.rollout.strategy }}
   strategy: {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -18,6 +24,9 @@ spec:
       labels: {{- include "echo-pong.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Release.Name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       automountServiceAccountToken: false
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}

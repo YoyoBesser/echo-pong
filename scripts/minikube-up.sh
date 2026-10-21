@@ -118,7 +118,7 @@ fi
 
 mk_start
 mk_load_image
-token="$(mk_deploy --set gateway.serviceType=LoadBalancer --set gateway.port="$port")"
+token="$(mk_deploy -f "$CHART_REF/values-local.yaml" --set gateway.port="$port")"
 
 log "minikube tunnel (Ctrl-C to stop)"
 tunnel_log="$(mktemp)"
