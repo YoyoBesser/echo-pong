@@ -64,7 +64,7 @@ Every PR entry requires:
 
 ---
 
-### 2026-10-21 - Gate CI, fix every finding, finish the skeleton
+### 2026-10-21 - [#2](https://github.com/YoyoBesser/echo-pong/pull/2) - Gate CI, fix every finding, finish the skeleton
 
 **Intent:** Make CI a real guardrail, make the original code and chart pass it without changing app behavior, then close every remaining README requirement.
 
