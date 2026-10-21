@@ -64,7 +64,7 @@ Every PR entry requires:
 
 ---
 
-### 2026-10-21 - Busybox at standard paths (/bin/sh)
+### 2026-10-21 - [#4](https://github.com/YoyoBesser/echo-pong/pull/4) - Busybox at standard paths (/bin/sh)
 
 **Intent:** Make the image's shell usable the normal way.
 
