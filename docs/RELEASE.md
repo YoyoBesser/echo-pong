@@ -43,6 +43,13 @@ A finding at step 2 means no tag, no chart and no GitHub Release (README L51). T
 
 ## Signing
 
+**Why sign:** the README doesn't ask for signing. It's there because scanning alone only proves something inside CI. Once an image sits in a registry, nothing ties it back to that check. A signature does:
+
+- **Proof the gate passed.** Only `publish` signs, and it runs only after every blocking scan passed. A valid signature means the image went through the gate (README L51, L87). A cluster can enforce "run only signed images" (Sigstore policy-controller or Kyverno `verifyImages`), so an image that skipped the gate can't run.
+- **Proof of origin.** The keyless certificate records *who* signed: this repo's `release.yml`, at that tag, via GitHub OIDC. An image pushed by anyone else, for example with a leaked token or after a registry compromise, has no valid signature.
+- **Tags are mutable, digests aren't.** The signature covers the digest. If someone re-points `vX.Y.Z` at another image, verification fails.
+- **Almost free.** It's one step, with no keys to manage. The cost of keyless signing is a dependency on Sigstore's public infrastructure (Fulcio, Rekor) at release and verify time.
+
 The released digest is signed with [cosign](https://github.com/sigstore/cosign) **keyless**: the job's GitHub OIDC identity gets a short-lived Sigstore certificate, and the signature is logged in Rekor. There are no keys to store or rotate. To verify:
 
 ```sh
