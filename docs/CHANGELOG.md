@@ -64,7 +64,7 @@ Every PR entry requires:
 
 ---
 
-### 2026-10-21 - Fix release binaries extraction
+### 2026-10-21 - [#3](https://github.com/YoyoBesser/echo-pong/pull/3) - Fix release binaries extraction
 
 **Intent:** Make the release binaries job work on GitHub's runners.
 
