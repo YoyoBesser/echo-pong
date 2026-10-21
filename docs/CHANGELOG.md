@@ -64,6 +64,20 @@ Every PR entry requires:
 
 ---
 
+### 2026-10-21 - Fix release binaries extraction
+
+**Intent:** Make the release binaries job work on GitHub's runners.
+
+**Result:** Release extracts both linux binaries from the image index, so a tag produces the GitHub Release with binaries.
+
+- **authors:** YoyoBesser
+- **dependencies:** none
+- **workflows:** `extract-binary.sh` pulls each arch by its own manifest digest from the index (pulling one index ref for two platforms failed with `cannot overwrite digest`)
+- **delivery:** none
+- **guardrails:** none
+- **breaking changes:** none
+- **Action needed:** none
+
 ### 2026-10-21 - [#2](https://github.com/YoyoBesser/echo-pong/pull/2) - Gate CI, fix every finding, finish the skeleton
 
 **Intent:** Make CI a real guardrail, make the original code and chart pass it without changing app behavior, then close every remaining README requirement.

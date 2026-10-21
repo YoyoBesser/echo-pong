@@ -253,6 +253,8 @@ The `minikube e2e` step runs last in each arch's [`e2e-tests` job](#e2e-tests), 
 
 The release binary is the one inside the image, not a separate build. For each arch, `build` runs [`extract-binary.sh`](../.github/scripts/extract-binary.sh): `docker create --platform linux/<arch>` on the pushed index, then `docker cp` of `/usr/local/bin/ping-pong-app`. It fails unless `file` reports `statically linked`. The container and the binary release can't drift: they are the same bytes.
 
+For a registry index, the script first resolves the arch's own manifest digest (`docker buildx imagetools inspect --raw`) and pulls `image@<that digest>`. Pulling one index ref for two platforms in a row can fail on the runner's Docker engine with `cannot overwrite digest`. That broke the `v0.1.0` release's binaries job, after the image was already tagged.
+
 The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
 
 An earlier version also ran the e2e suites against the binary on stock `ubuntu` and `alpine` images. It was dropped for CI time: the static check plus the container suites cover the same binary. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
