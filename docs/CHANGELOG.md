@@ -64,7 +64,7 @@ Every PR entry requires:
 
 ---
 
-### 2026-10-21 - Minimal scanner stack, single Go version source, scoped doc claims
+### 2026-10-21 - [#5](https://github.com/YoyoBesser/echo-pong/pull/5) - Minimal scanner stack, single Go version source, scoped doc claims
 
 **Intent:** Cut overlapping scanners and overstated doc claims while keeping the same README coverage.
 
