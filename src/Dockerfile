@@ -3,15 +3,18 @@
 # Target-arch busybox binary (static, musl).
 FROM busybox:musl AS busybox
 
-# Applet symlinks made on the build platform, no QEMU. See docs/CONTAINER.md#busybox
+# Applets at their standard paths, mapped onto distroless's usr-merged /usr/{bin,sbin}; made on the
+# build platform, no QEMU. See docs/CONTAINER.md#busybox
 FROM --platform=$BUILDPLATFORM busybox:musl AS busybox-rootfs
-COPY --from=busybox /bin/busybox /rootfs/busybox/busybox
-RUN for a in $(busybox --list); do [ "$a" = busybox ] || ln -s busybox "/rootfs/busybox/$a"; done
+COPY --from=busybox /bin/busybox /rootfs/usr/bin/busybox
+RUN mkdir -p /rootfs/usr/sbin && for p in $(busybox --list-full); do \
+      case "$p" in bin/* | usr/bin/*) d=usr/bin ;; sbin/* | usr/sbin/*) d=usr/sbin ;; *) continue ;; esac; \
+      n="${p##*/}"; [ "$n" = busybox ] || ln -s /usr/bin/busybox "/rootfs/$d/$n"; \
+    done
 
-# Base: distroless static + busybox shell. See docs/CONTAINER.md#base-image
+# Base: distroless static + busybox as /bin/sh. See docs/CONTAINER.md#base-image
 FROM gcr.io/distroless/static-debian13:nonroot AS base
 COPY --from=busybox-rootfs /rootfs/ /
-ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/busybox
 
 # Cross-compile on the build platform. See docs/CONTAINER.md#cross-compile
 # Tag matches go.mod's toolchain line. See docs/CONTAINER.md#go-toolchain

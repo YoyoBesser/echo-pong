@@ -19,11 +19,16 @@ Distroless static has no package manager and no shell, only CA certs, tzdata, `/
 
 ### Busybox
 
-`busybox:musl` (static, tracks the latest BusyBox release) is copied to `/busybox/`, with one symlink per applet and `/busybox` appended to `PATH`. This matches the layout of distroless's own `:debug` images, but with the current BusyBox instead of whatever version distroless last pinned.
+`busybox:musl` (static, tracks the latest BusyBox release) is installed the standard way: the binary at `/usr/bin/busybox`, and one symlink per applet at its canonical path from `busybox --list-full`. So `/bin/sh`, `/bin/vi`, `/usr/bin/wget`, `/sbin/ip` and so on all work:
 
-It gives `kubectl exec ... -- sh`, `wget` and `nc` for debugging inside the pod.
+```sh
+docker run --rm -it --entrypoint /bin/sh ghcr.io/yoyobesser/echo-pong:<tag>
+kubectl -n echo-pong exec -it deploy/echo-pong -- sh
+```
 
-Trade-off: a shell and `wget` in the production image help an attacker who gets code execution. The alternative is a shell-less image plus `kubectl debug` ephemeral containers, which keeps prod images minimal and brings tools only when needed.
+Distroless is usr-merged (`/bin` → `usr/bin`, `/sbin` → `usr/sbin`, both empty), so `bin/*` and `usr/bin/*` applets land in `/usr/bin`, and `sbin/*` and `usr/sbin/*` in `/usr/sbin`. They're reached through the base's own `/bin` and `/sbin` symlinks, and the default `PATH` already covers them.
+
+Trade-off: a shell and `wget` in the production image help an attacker who gets code execution. The alternative is a shell-less image plus `kubectl debug` ephemeral containers, which keeps images minimal and brings tools only when needed.
 
 The symlinks are created in a stage pinned to `$BUILDPLATFORM`, running the build host's own busybox. Only the target-arch binary is copied in, so no step executes target-arch code and cross-arch builds need no QEMU.
 

@@ -64,6 +64,20 @@ Every PR entry requires:
 
 ---
 
+### 2026-10-21 - Busybox at standard paths (/bin/sh)
+
+**Intent:** Make the image's shell usable the normal way.
+
+**Result:** `docker run --entrypoint /bin/sh` and `kubectl exec ... -- sh` work; every busybox applet sits at its standard path.
+
+- **authors:** YoyoBesser
+- **dependencies:** none
+- **workflows:** none
+- **delivery:** busybox moves from `/busybox/` (custom `PATH`) to `/usr/bin/busybox` with applet symlinks in `/usr/bin` and `/usr/sbin` (reached via distroless's `/bin` and `/sbin` symlinks); `PATH` override removed
+- **guardrails:** none
+- **breaking changes:** `/busybox/...` paths are gone; use `/bin/sh` or the applet name
+- **Action needed:** none
+
 ### 2026-10-21 - [#3](https://github.com/YoyoBesser/echo-pong/pull/3) - Fix release binaries extraction
 
 **Intent:** Make the release binaries job work on GitHub's runners.
