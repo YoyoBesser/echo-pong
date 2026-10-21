@@ -77,7 +77,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 - **Binaries:** the release binary is copied out of the image, so container and binary are the same bytes. CI checks it's static ([CI.md#static-binary](CI.md#static-binary)).
 - **Testing:** e2e runs on native amd64 and arm64 runners, and fails unless the runner pulled its own arch from the index.
 - **Scanning:** trivy scans each arch separately.
-- **darwin:** amd64/arm64 binaries are cross-compiled in release ([RELEASE.md#binaries](RELEASE.md#binaries)).
+- **Binaries:** linux/amd64 and linux/arm64 only, the e2e-tested bytes from the image. No darwin builds, since CI can't test them ([RELEASE.md#binaries](RELEASE.md#binaries)).
 
 ## Versioning and tagging strategy
 
@@ -93,7 +93,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 - **Scan, then tag:** `release.yml` builds with the tag stamped in, pushes by digest only, scans that digest, then tags that exact digest `vX.Y.Z`. What ships is what was scanned ([RELEASE.md#pipeline](RELEASE.md#pipeline)).
 - **No `latest`:** kube-linter's `latest-tag` check blocks it in the chart. Deploys reference an immutable version.
 - **Binary:** `-ldflags -X` stamps the version, so `--version` and `/health` report the tag ([CONTAINER.md#version](CONTAINER.md#version)).
-- **Release:** pushing `vX.Y.Z` creates a GitHub Release with linux/darwin binaries and checksums.
+- **Release:** pushing `vX.Y.Z` creates a GitHub Release with linux amd64/arm64 binaries and checksums.
 - **Deploys:** pin by digest (`image@sha256:...`), so a re-pushed tag can't change what runs.
 
 ## Going cloud with EKS

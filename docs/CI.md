@@ -108,7 +108,6 @@ Every CI tool version lives in one block in [`.github/actions/install-ci-tools`]
 | `minikube` | Go, helm, minikube, kubectl |
 | `scan` | trivy |
 | `repo` | gitleaks |
-| `release` | Go |
 | `github` | uv (then `uv sync --locked` in `.github/`), actionlint |
 
 An unknown suite fails fast. Binaries, including golangci-lint and helm, are fetched from upstream releases and checked against the published SHA-256 checksums, rather than through their setup actions, so they can be [cached](#tool-cache). One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl. To bump a tool, change one line there.
@@ -250,7 +249,7 @@ For a registry index, the script first resolves the arch's own manifest digest (
 
 The binary is static because the Dockerfile builds with `CGO_ENABLED=0` (see [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)). With no libc dependency, it runs on any Linux distribution of its arch.
 
-An earlier version also ran the e2e suites against the binary on stock `ubuntu` and `alpine` images. It was dropped for CI time: the static check plus the container suites cover the same binary. darwin binaries can't come from a Linux image. They'll be cross-compiled in the release workflow.
+An earlier version also ran the e2e suites against the binary on stock `ubuntu` and `alpine` images. It was dropped for CI time: the static check plus the container suites cover the same binary. Releases ship only these linux binaries; there are no darwin builds, which CI couldn't test ([RELEASE.md#binaries](RELEASE.md#binaries)).
 
 ## Reusable scans
 

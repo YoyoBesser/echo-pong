@@ -1,6 +1,6 @@
 name: Release
 
-# vX.Y.Z tag: build, gate on scans, then tag the image and publish binaries. See docs/RELEASE.md#pipeline
+# vX.Y.Z tag: build, gate on scans, then tag the image and publish linux binaries. See docs/RELEASE.md#pipeline
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -118,10 +118,7 @@ jobs:
           registry: ${{ needs.metadata.outputs.registry }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/install-ci-tools
-        with:
-          suite: release
-      # linux from the scanned image, darwin cross-compiled. See docs/RELEASE.md#binaries
+      # linux only, from the scanned image: the bytes e2e tested. See docs/RELEASE.md#binaries
       - id: binaries
         name: build release binaries
         run: .github/scripts/release-binaries.sh "$TAG" "$IMAGE" dist

@@ -43,7 +43,7 @@ The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGE
 Everything reads that line:
 
 - **Dockerfile:** the builder is `golang:1.24` (the language minimum) with `GOTOOLCHAIN=auto`. Go then downloads the `toolchain` version itself, verified against the Go checksum database. A `COPY go.mod` + `go version` layer caches that download until `go.mod` changes.
-- **CI:** setup-go reads `toolchain`, so lint, tests and release binaries use the same compiler.
+- **CI:** setup-go reads `toolchain`, so lint and tests use the same compiler as the image.
 - **Locally:** any Go ≥ 1.24 switches to it automatically.
 
 To bump Go, change the `toolchain` line only.

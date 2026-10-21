@@ -95,7 +95,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Version injected into binary (`--version`, `/health`) ([CONTAINER.md#version](CONTAINER.md#version))
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
   - [x] linux amd64/arm64 binary = the image's binary, verified static ([CI.md#static-binary](CI.md#static-binary))
-  - [x] linux + cross-compiled darwin amd64/arm64 binaries with checksums on GitHub Releases ([RELEASE.md#binaries](RELEASE.md#binaries))
+  - [x] linux amd64/arm64 binaries (the e2e-tested image bytes) with checksums on GitHub Releases ([RELEASE.md#binaries](RELEASE.md#binaries))
   - [x] SBOM + provenance attestations on the release image ([RELEASE.md#attestations](RELEASE.md#attestations))
 
 ## Evaluation

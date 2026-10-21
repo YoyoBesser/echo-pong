@@ -183,10 +183,9 @@ flowchart LR
   end
   subgraph j_binaries["binaries"]
     direction TB
-    j_binaries_0[.github/actions/install-ci-tools]
-    j_binaries_1("build release binaries"):::do
-    j_binaries_2[.github/actions/record-results]
-    j_binaries_0 --> j_binaries_1 --> j_binaries_2
+    j_binaries_0("extract linux binaries"):::do
+    j_binaries_1[.github/actions/record-results]
+    j_binaries_0 --> j_binaries_1
   end
   subgraph j_github_release["github-release"]
     direction TB
@@ -283,7 +282,7 @@ flowchart LR
 | Action | Does | Inputs | Used by |
 |---|---|---|---|
 | [`gather-metadata`](../.github/actions/gather-metadata/action.yml) | Branch, SHA, commit message, trigger reason, branch slug, image ref and registry ([CI.md#gather-metadata](CI.md#gather-metadata)) | `image` (registry override) | `metadata` job of every top-level workflow |
-| [`install-ci-tools`](../.github/actions/install-ci-tools/action.yml) | Pinned, checksum-verified, cached tools per suite ([CI.md#tool-pins](CI.md#tool-pins)) | `suite` (`app`, `helm`, `minikube`, `scan`, `repo`, `release`, `github`), `k8s-version` | every job that runs a tool, and `summarize-results` |
+| [`install-ci-tools`](../.github/actions/install-ci-tools/action.yml) | Pinned, checksum-verified, cached tools per suite ([CI.md#tool-pins](CI.md#tool-pins)) | `suite` (`app`, `helm`, `minikube`, `scan`, `repo`, `github`), `k8s-version` | every job that runs a tool, and `summarize-results` |
 | [`record-results`](../.github/actions/record-results/action.yml) | Uploads one `kind\|check\|outcome\|conclusion` row per check as an artifact ([CI.md#build-summary](CI.md#build-summary)) | `rows`, `scope` | every test and scan job |
 | [`summarize-results`](../.github/actions/summarize-results/action.yml) | Renders the Tests and Security tables into the run summary with `render.py` | `order` | `summary` job of every top-level workflow |
 
@@ -298,5 +297,5 @@ flowchart LR
 | [`check_doc_links.py`](../.github/scripts/check_doc_links.py) | Checks doc links and anchors ([CI.md#doc-links](CI.md#doc-links)) | `common-ci.yml` `doc-links` |
 | [`ghcr_cleanup.py`](../.github/scripts/ghcr_cleanup.py) | GHCR retention policy ([CI.md#image-cleanup](CI.md#image-cleanup)) | `cleanup.yml` |
 | [`render.py`](../.github/actions/summarize-results/render.py) | Renders result rows as Markdown tables | `summarize-results` |
-| [`release-binaries.sh`](../.github/scripts/release-binaries.sh) | linux binaries from the scanned image, darwin cross-compiled | `release.yml` `binaries` |
+| [`release-binaries.sh`](../.github/scripts/release-binaries.sh) | linux amd64/arm64 binaries from the scanned image | `release.yml` `binaries` |
 | [`act.sh`](../.github/scripts/act.sh) | Runs a workflow locally with act ([LOCAL-TESTING.md#act-wrapper](LOCAL-TESTING.md#act-wrapper)) | developers |

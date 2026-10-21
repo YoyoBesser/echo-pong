@@ -72,8 +72,8 @@ Every PR entry requires:
 
 - **authors:** YoyoBesser
 - **dependencies:** dropped staticcheck, gosec and govulncheck binaries (golangci-lint runs govet, staticcheck, gosec), `trivy-plugin-govulncheck`, trivy for chart and repo; Dockerfile builder is `golang:1.24` with `GOTOOLCHAIN=auto`, so `go.mod`'s `toolchain` line is the only Go pin
-- **workflows:** `scan-source.yml` removed; lint job = golangci-lint (lint + SAST) + `go vet`; `scan-image` = plain trivy image; `scan-repo` = gitleaks only; helm-ci drops `trivy config` and `helm/.trivy-ksv-gate`; release gate = image + secret scans
-- **delivery:** none (same image contents; compiler still go1.27.3)
+- **workflows:** `scan-source.yml` removed; lint job = golangci-lint (lint + SAST) + `go vet`; `scan-image` = plain trivy image; `scan-repo` = gitleaks only; helm-ci drops `trivy config` and `helm/.trivy-ksv-gate`; release gate = image + secret scans; `release` tools suite removed
+- **delivery:** releases publish linux amd64/arm64 binaries only (the e2e-tested image bytes); darwin builds dropped as untested; image contents unchanged (compiler still go1.27.3)
 - **guardrails:** securityContext regressions caught by kube-linter (non-root, read-only FS) and PSA `restricted` in e2e (escalation, caps, seccomp); docs scope zero-downtime, PSA, registry pull, cleanup, SBOM and EKS claims to what's actually tested
 - **breaking changes:** none
 - **Action needed:** none
