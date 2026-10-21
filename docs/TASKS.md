@@ -2,6 +2,17 @@
 
 Each bold line quotes a requirement from the assignment [README](../README.md), with its line number. The bullets under it say how we meet it: `[x]` done, `[ ]` planned.
 
+## Contents
+
+- [Application](#application)
+- [Mission](#mission)
+- [Security](#security)
+- [Kubernetes](#kubernetes)
+- [CI/CD](#cicd)
+- [Evaluation](#evaluation)
+- [Deliverables](#deliverables)
+- [To explain](#to-explain)
+
 ## Application
 
 - **[L23](../README.md?plain=1#L23) / [L35](../README.md?plain=1#L35): `SECRET_FILE_PATH` - Path to secret file**
@@ -19,7 +30,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L42](../README.md?plain=1#L42): Take this application to production with support for both x86 and ARM64 ... binary release and a container release**
   - [x] One buildx build for amd64 + arm64, pushed as a multi-arch index ([CI.md#build](CI.md#build))
   - [x] Static linux binaries (amd64, arm64) extracted from the CI image and verified static ([CI.md#static-binary](CI.md#static-binary))
-  - [ ] Release: multi-arch image to GHCR + binaries on GitHub Releases (`release.yml` placeholders)
+  - [x] Release: multi-arch image to GHCR + binaries on GitHub Releases ([RELEASE.md#pipeline](RELEASE.md#pipeline))
 
 ## Security
 
@@ -36,7 +47,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Distroless static base keeps CVE surface near zero ([CONTAINER.md#base-image](CONTAINER.md#base-image))
   - [x] CI fails on CRITICAL/HIGH, fixed or not; 0 findings since the go1.27.3 toolchain bump ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain))
   - [x] Release gate: `release.yml` calls the same reusable scans; `publish` (the `vX.Y.Z` retag) needs both ([CI.md#reusable-scans](CI.md#reusable-scans))
-  - [ ] Release `image` job (build + push under SHA) still a placeholder
+  - [x] Release builds and pushes by digest, tags only the scanned digest ([RELEASE.md#pipeline](RELEASE.md#pipeline))
 - **[L52](../README.md?plain=1#L52): No secrets in codebase**
   - [x] Token only in an out-of-band Secret, never in values ([HELM.md#auth-secret](HELM.md#auth-secret))
   - [x] e2e generates a random token per run
@@ -74,19 +85,19 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L62](../README.md?plain=1#L62): Multi-architecture builds (x86/ARM64)**
   - [x] Single multi-platform buildx build, no QEMU; Dockerfile cross-compiles ([CONTAINER.md#cross-compile](CONTAINER.md#cross-compile))
   - [x] Multi-arch OCI index per commit; e2e pulls it on native amd64 + arm64 runners
-  - [ ] Multi-arch manifest on release
+  - [x] Multi-arch index on release (`vX.Y.Z`)
 - **[L63](../README.md?plain=1#L63): Images stored in GitHub Container Registry**
   - [x] CI pushes every commit to `ghcr.io/yoyobesser/echo-pong:<sha>` (multi-arch), registry build cache `<branch-slug>-cache` / `main-cache` ([CI.md#image-tags](CI.md#image-tags))
-  - [ ] `release.yml` pushes `ghcr.io/yoyobesser/echo-pong` with version tags
-  - [ ] Chart pushed to GHCR as OCI
+  - [x] `release.yml` tags `ghcr.io/yoyobesser/echo-pong:vX.Y.Z` ([RELEASE.md#versioning](RELEASE.md#versioning))
+  - [x] Chart pushed to `oci://ghcr.io/yoyobesser/charts/echo-pong` ([RELEASE.md#chart](RELEASE.md#chart))
 - **[L64](../README.md?plain=1#L64): Versioned releases with tags**
   - [x] `release.yml` triggers on `vX.Y.Z` tags
   - [x] kube-linter: `latest-tag`
   - [x] Version injected into binary (`--version`, `/health`) ([CONTAINER.md#version](CONTAINER.md#version))
-  - [ ] Chart version tracks app version (release)
+  - [x] Chart version tracks app version (`X.Y.Z` / `appVersion: vX.Y.Z`)
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
   - [x] linux amd64/arm64 binary = the image's binary, verified static ([CI.md#static-binary](CI.md#static-binary))
-  - [ ] Publish linux binaries + cross-compiled darwin amd64/arm64 on GitHub Releases
+  - [x] linux + cross-compiled darwin amd64/arm64 binaries with checksums on GitHub Releases ([RELEASE.md#binaries](RELEASE.md#binaries))
 
 ## Evaluation
 

@@ -1,5 +1,37 @@
 # CI
 
+## Contents
+
+- [Workflow split](#workflow-split)
+- [Gather metadata](#gather-metadata)
+  - [Script injection](#script-injection)
+  - [PR head commit](#pr-head-commit)
+  - [Commit message](#commit-message)
+- [Go lint](#go-lint)
+- [SAST and SCA](#sast-and-sca)
+  - [Gosec exceptions](#gosec-exceptions)
+- [Tool pins](#tool-pins)
+  - [Tool cache](#tool-cache)
+- [Build](#build)
+  - [Image tags](#image-tags)
+  - [Build cache](#build-cache)
+- [E2E tests](#e2e-tests)
+- [Chart lint](#chart-lint)
+  - [Kubeconform](#kubeconform)
+  - [Kube-linter policy](#kube-linter-policy)
+- [Gating](#gating)
+- [Minikube e2e](#minikube-e2e)
+- [Static binary](#static-binary)
+- [Reusable scans](#reusable-scans)
+- [Repo scan](#repo-scan)
+- [Image scan](#image-scan)
+- [Trivy config](#trivy-config)
+- [Build summary](#build-summary)
+- [Common CI](#common-ci)
+  - [Doc links](#doc-links)
+- [Rollout verification](#rollout-verification)
+- [Image cleanup](#image-cleanup)
+
 ## Workflow split
 
 CI is split by what changed:

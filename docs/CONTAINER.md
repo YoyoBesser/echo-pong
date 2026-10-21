@@ -2,6 +2,15 @@
 
 Image built from [`src/Dockerfile`](../src/Dockerfile), with build context `src/`. [`src/.dockerignore`](../src/.dockerignore) is an allowlist: only `go.mod` and `*.go` enter the context.
 
+## Contents
+
+- [Base image](#base-image)
+  - [Busybox](#busybox)
+- [Cross-compile](#cross-compile)
+- [Go toolchain](#go-toolchain)
+- [Version](#version)
+- [Non-root](#non-root)
+
 ## Base image
 
 The runtime base is [distroless](https://github.com/GoogleContainerTools/distroless) `static-debian13:nonroot` plus a [busybox shell](#busybox). It's built as the `base` stage of the same Dockerfile (`docker build --target base src/`).

@@ -6,6 +6,12 @@ Agents and contributors **must append an entry** for every merged PR that change
 app behaviour, tooling, workflows, repo guardrails, or delivery configuration
 (container image, Helm chart). See [`AGENTS.md`](../AGENTS.md) and [`docs/AGENTS.md`](AGENTS.md).
 
+## Contents
+
+- [Format](#format)
+  - [Action needed values](#action-needed-values)
+  - [Entry template](#entry-template)
+
 ## Format
 
 Append entries at the top of the changelog, below this section (newest first). Every entry title uses

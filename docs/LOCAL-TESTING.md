@@ -1,5 +1,17 @@
 # Local testing
 
+## Contents
+
+- [CI](#ci)
+  - [Setup](#setup)
+  - [Run](#run)
+  - [Gotchas](#gotchas)
+- [E2E](#e2e)
+- [Minikube e2e](#minikube-e2e)
+- [Common CI](#common-ci)
+- [Act wrapper](#act-wrapper)
+- [Minikube up](#minikube-up)
+
 ## CI
 
 Workflows run locally with [act](https://github.com/nektos/act), which runs each job in a Docker container. Use the [act wrapper](#act-wrapper) instead of calling act directly.

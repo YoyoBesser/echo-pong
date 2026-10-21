@@ -23,6 +23,21 @@ Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccoun
 | `gateway.port` / `gateway.hostnames` | `80` / `[]` | Listener port; HTTPRoute hostnames (empty matches all) |
 | `envoy-gateway.enabled` | `true` | Install the Envoy Gateway subchart |
 
+## Contents
+
+- [Envoy Gateway](#envoy-gateway)
+- [Security context](#security-context)
+- [Pod Security Admission](#pod-security-admission)
+- [Zero downtime](#zero-downtime)
+- [Autoscaling](#autoscaling)
+- [Environments](#environments)
+- [Image pull](#image-pull)
+- [Scheduling](#scheduling)
+- [Resources](#resources)
+- [Network policy](#network-policy)
+- [Auth secret](#auth-secret)
+- [Probes](#probes)
+
 ## Envoy Gateway
 
 Ingress uses the [Gateway API](https://gateway-api.sigs.k8s.io/), with [Envoy Gateway](https://gateway.envoyproxy.io/) as the implementation. The `gateway-helm` chart (v1.9.2, `oci://docker.io/envoyproxy`) is a dependency aliased `envoy-gateway`. It brings the Gateway API and Envoy CRDs (from its `crds/`, which Helm installs first) and the controller. The alias must be lowercase, because it ends up in resource names (`echo-pong-envoy-gateway-certgen`).
