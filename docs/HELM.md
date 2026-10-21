@@ -1,6 +1,6 @@
 # Helm
 
-Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, optional HPA, the Gateway API objects, and the Envoy Gateway subchart, plus [local values](#local-values) for minikube. It passes the [kube-linter policy](CI.md#kube-linter-policy) and the [trivy gate](CI.md#trivy-config).
+Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, optional HPA, the Gateway API objects, and the Envoy Gateway subchart, plus [local values](#local-values) for minikube. It passes the [kube-linter policy](CI.md#kube-linter-policy).
 
 | Value | Default | Purpose |
 |---|---|---|
@@ -64,18 +64,18 @@ The pod and container run locked down by default (`podSecurityContext`, `securit
 | `capabilities.drop` | `[ALL]` | L83 |
 | `seccompProfile.type` | `RuntimeDefault` | L83 |
 
-Pinned in two layers, so removing or weakening any of it fails CI:
+Removing or weakening these fails a PR in one of two places:
 
-1. **Static, at PR time:** the blocking `trivy config` gate in helm-ci ([CI.md#trivy-config](CI.md#trivy-config)) checks every row above on the rendered chart, whether it's broken by a template edit, a values override or a deleted block. kube-linter alone can't do this, because it passes a container that sets nothing.
-2. **Runtime, at deploy:** [Pod Security Admission](#pod-security-admission) `restricted` on the e2e namespace. The API server itself refuses pods that drop the settings.
+1. **Helm CI (static):** kube-linter's `run-as-non-root` and `no-read-only-root-fs` fail when those fields are missing or unsafe. Its privileged/escalation checks only fire when the field is set to an unsafe value ([CI.md#kube-linter-policy](CI.md#kube-linter-policy)).
+2. **App CI e2e (deploy time):** [Pod Security Admission](#pod-security-admission) `restricted` on the e2e namespace refuses pods missing `allowPrivilegeEscalation: false`, drop `ALL`, seccomp or non-root, so the minikube e2e fails.
 
 ## Pod Security Admission
 
 The [minikube e2e](CI.md#minikube-e2e) labels its namespace `pod-security.kubernetes.io/enforce=restricted` (with `enforce-version=latest`) before installing. Kubernetes' built-in admission then rejects any pod that isn't non-root, without privilege escalation, with capabilities dropped to `ALL` and seccomp `RuntimeDefault`. If the chart's [security context](#security-context) regresses, the pods never start and the e2e fails. A bare pod with no securityContext is refused with `violates PodSecurity "restricted:latest"`.
 
-Everything in the release runs under `restricted`: the app and the Envoy Gateway controller, certgen job and proxy. PSA doesn't check `readOnlyRootFilesystem`; the trivy gate covers that.
+Everything in the release runs under `restricted`: the app and the Envoy Gateway controller, certgen job and proxy. PSA doesn't check `readOnlyRootFilesystem`; kube-linter's `no-read-only-root-fs` covers that.
 
-On a real cluster (EKS), the platform should label app namespaces the same way. The chart doesn't create its namespace, so it can't set the label itself.
+This is enforced only on the e2e namespace. The chart doesn't create its namespace, so it can't set the label itself. On a real cluster, the platform has to label app namespaces the same way.
 
 ## Zero downtime
 
@@ -93,7 +93,7 @@ A pod is stopped in this order:
 2. **SIGTERM drain.** The app stops accepting connections and finishes in-flight requests (`http.Server.Shutdown`, up to 20s), then exits 0.
 3. **Grace period.** `terminationGracePeriodSeconds: 30` covers both steps before the kubelet would SIGKILL.
 
-Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), this keeps serving pods behind the Gateway throughout a rollout. [CI.md#rollout-verification](CI.md#rollout-verification) proves it on every PR.
+Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), this keeps serving pods behind the Gateway through a rolling update. [CI.md#rollout-verification](CI.md#rollout-verification) checks a rolling restart on every PR, on a single-node minikube; node drains and multi-node clusters aren't tested.
 
 ## Autoscaling
 
@@ -111,7 +111,7 @@ Helm CI lints, renders, schema-checks, policy-checks and trivy-gates both the ba
 
 ## Image pull
 
-README L59: "Cluster can pull from registry." Images are in GHCR. A public package needs nothing. A private one needs a `kubernetes.io/dockerconfigjson` Secret in the namespace, listed in `imagePullSecrets`:
+README L59: "Cluster can pull from registry." Images are in GHCR, and the package is public, so a cluster can pull without credentials (an anonymous manifest fetch returns 200). If the package were private, it would need a `kubernetes.io/dockerconfigjson` Secret in the namespace, listed in `imagePullSecrets`:
 
 ```sh
 kubectl -n echo-pong create secret docker-registry ghcr-pull \
@@ -119,7 +119,7 @@ kubectl -n echo-pong create secret docker-registry ghcr-pull \
 helm upgrade --install echo-pong helm/echo-pong --set 'imagePullSecrets[0].name=ghcr-pull'
 ```
 
-The minikube flows load the image into the cluster instead (`pullPolicy: Never`), so they don't need it. On EKS, either make the package public or mirror it to ECR and pull with the node role. That second option is also how teams worldwide get fast pulls (see [EXPLAIN.md](EXPLAIN.md)).
+Not tested: no cluster here ever pulls the image. The minikube flows load it into the cluster (`pullPolicy: Never`). On EKS, either make the package public or mirror it to ECR and pull with the node role. That second option is also how teams worldwide get fast pulls (see [EXPLAIN.md](EXPLAIN.md)).
 
 ## Scheduling
 

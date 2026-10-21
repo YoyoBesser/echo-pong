@@ -1,6 +1,6 @@
 name: Release
 
-# vX.Y.Z tag: build, gate on scans, then tag the image and publish binaries. See docs/RELEASE.md#pipeline
+# vX.Y.Z tag: build, gate on scans, then tag the image and publish linux binaries. See docs/RELEASE.md#pipeline
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -65,11 +65,7 @@ jobs:
           provenance: mode=max
           cache-from: type=registry,ref=${{ env.IMAGE }}:main-cache
 
-  # Release gate: same scans as CI, all blocking. See docs/CI.md#reusable-scans
-  scan-source:
-    needs: metadata
-    uses: ./.github/workflows/scan-source.yml
-
+  # Release gate: same image + secret scans as CI, blocking; SAST gates every PR. See docs/CI.md#reusable-scans
   scan-repo:
     needs: metadata
     uses: ./.github/workflows/scan-repo.yml
@@ -86,7 +82,7 @@ jobs:
 
   # Only after every scan passed: tag the scanned digest. See docs/RELEASE.md#pipeline
   publish:
-    needs: [metadata, image, scan-source, scan-repo, scan-image]
+    needs: [metadata, image, scan-repo, scan-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -107,7 +103,7 @@ jobs:
           docker buildx imagetools inspect "$IMAGE:$TAG"
 
   binaries:
-    needs: [metadata, image, scan-source, scan-image]
+    needs: [metadata, image, scan-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -122,10 +118,7 @@ jobs:
           registry: ${{ needs.metadata.outputs.registry }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: ./.github/actions/install-ci-tools
-        with:
-          suite: release
-      # linux from the scanned image, darwin cross-compiled. See docs/RELEASE.md#binaries
+      # linux only, from the scanned image: the bytes e2e tested. See docs/RELEASE.md#binaries
       - id: binaries
         name: build release binaries
         run: .github/scripts/release-binaries.sh "$TAG" "$IMAGE" dist
@@ -165,11 +158,11 @@ jobs:
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:
-    needs: [image, scan-source, scan-repo, scan-image, publish, binaries, github-release]
+    needs: [image, scan-repo, scan-image, publish, binaries, github-release]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - uses: ./.github/actions/summarize-results
         with:
-          order: scan-source scan-repo scan-image binaries
+          order: scan-repo scan-image binaries

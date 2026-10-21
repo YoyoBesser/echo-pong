@@ -1,6 +1,6 @@
 name: Scan repo
 
-# Reusable: repo-wide secret scanning, shared by common CI and release. See docs/CI.md#repo-scan
+# Reusable: secret scan of the full git history, shared by common CI and release. See docs/CI.md#repo-scan
 on:
   workflow_call:
 
@@ -18,9 +18,6 @@ jobs:
       - uses: ./.github/actions/install-ci-tools
         with:
           suite: repo
-      - id: trivy-fs
-        name: trivy fs (secrets, working tree)
-        run: trivy fs --no-progress --scanners secret --exit-code 1 .
       - id: gitleaks
         name: gitleaks (secrets, git history)
         run: gitleaks git --no-banner --redact --exit-code 1 .
@@ -28,5 +25,4 @@ jobs:
         uses: ./.github/actions/record-results
         with:
           rows: |
-            security|trivy fs (secrets)|${{ steps.trivy-fs.outcome }}|${{ steps.trivy-fs.conclusion }}
             security|gitleaks (git history)|${{ steps.gitleaks.outcome }}|${{ steps.gitleaks.conclusion }}

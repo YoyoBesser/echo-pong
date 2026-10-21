@@ -125,7 +125,7 @@ scripts/minikube-up.sh --down          # delete the cluster
 
 What it does:
 
-1. Builds the image (`echo-pong:dev-<short-sha>[-dirty]`) or pulls the GHCR tag. A private package needs `docker login ghcr.io` with a `read:packages` token. The image is loaded into minikube, so the cluster needs no pull secret.
+1. Builds the image (`echo-pong:dev-<short-sha>[-dirty]`) or pulls the GHCR tag. The package is public, so no login is needed. The image is loaded into minikube, so the cluster needs no pull secret.
 2. Starts minikube (profile `echo-pong-dev`) on the CI `k8s-version` pin, read from `install-ci-tools`.
 3. Deploys the local chart through the same steps as the [minikube e2e](CI.md#minikube-e2e): namespace with [PSA `restricted`](HELM.md#pod-security-admission), auth Secret, `helm upgrade --install`. They're shared via [`scripts/lib/minikube.sh`](../scripts/lib/minikube.sh). The difference is `gateway.serviceType=LoadBalancer` and `gateway.port` (default 8080).
 4. Runs `minikube tunnel`, which gives the Envoy LoadBalancer Service the external IP `127.0.0.1`. The Gateway then reports that address as `Programmed`.

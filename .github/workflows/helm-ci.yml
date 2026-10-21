@@ -98,22 +98,6 @@ jobs:
             echo "== $env"
             kube-linter lint --config helm/.kube-linter.yaml "rendered/$env-app.yaml"
           done
-      # README-traced KSV IDs only; full report is informational. See docs/CI.md#trivy-config
-      - id: trivy-config
-        name: trivy config
-        run: |
-          set -euo pipefail
-          gate="$(grep -oE '^KSV-[0-9]+' helm/.trivy-ksv-gate | jq -R . | jq -cs .)"
-          : > gate-failures.txt
-          for env in $ENVS; do
-            echo "== $env"
-            trivy config --quiet -f json -o "trivy-config-$env.json" "rendered/$env.yaml"
-            trivy convert --format table "trivy-config-$env.json"
-            jq -r --arg env "$env" --argjson gate "$gate" '.Results[]?.Misconfigurations[]?
-              | select(.Status == "FAIL" and (.ID | IN($gate[])))
-              | "\($env): \(.ID) \(.Message)"' "trivy-config-$env.json" >> gate-failures.txt
-          done
-          if [[ -s gate-failures.txt ]]; then echo "::error::README-gated KSV checks failed"; sort -u gate-failures.txt; exit 1; fi
       - if: always()
         uses: ./.github/actions/record-results
         with:
@@ -122,7 +106,6 @@ jobs:
             tests|helm template|${{ steps.template.outcome }}|${{ steps.template.conclusion }}
             tests|kubeconform -strict|${{ steps.kubeconform.outcome }}|${{ steps.kubeconform.conclusion }}
             tests|kube-linter (README policy)|${{ steps.kube-linter.outcome }}|${{ steps.kube-linter.conclusion }}
-            security|trivy config (README KSV gate)|${{ steps.trivy-config.outcome }}|${{ steps.trivy-config.conclusion }}
 
   # Tests + Security tables for the whole run. See .github/workflows/AGENTS.md
   summary:
