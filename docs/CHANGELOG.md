@@ -72,7 +72,7 @@ Every PR entry requires:
 
 - **authors:** YoyoBesser
 - **dependencies:** none
-- **workflows:** `extract-binary.sh` pulls each arch by its own manifest digest from the index (pulling one index ref for two platforms failed with `cannot overwrite digest`)
+- **workflows:** `extract-binary.sh` pulls each arch by its own manifest digest from the index (pulling one index ref for two platforms failed with `cannot overwrite digest`); app-ci also runs on `scripts/**` and `.github/scripts/**`, which its jobs execute
 - **delivery:** none
 - **guardrails:** none
 - **breaking changes:** none
