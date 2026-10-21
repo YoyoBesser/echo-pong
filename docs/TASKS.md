@@ -98,6 +98,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L65](../README.md?plain=1#L65): Both container and binary releases**
   - [x] linux amd64/arm64 binary = the image's binary, verified static ([CI.md#static-binary](CI.md#static-binary))
   - [x] linux + cross-compiled darwin amd64/arm64 binaries with checksums on GitHub Releases ([RELEASE.md#binaries](RELEASE.md#binaries))
+  - [x] cosign keyless signing + SBOM/provenance attestations ([RELEASE.md#signing](RELEASE.md#signing))
 
 ## Evaluation
 
@@ -107,7 +108,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Helm chart, `helm lint --strict`, `kubeconform -strict` incl. CRDs ([CI.md#chart-lint](CI.md#chart-lint))
   - [x] README-traced kube-linter policy, gating ([CI.md#gating](CI.md#gating))
   - [x] Chart passes the policy: resources, ServiceAccount (no token automount), NetworkPolicy ([HELM.md#resources](HELM.md#resources))
-  - [x] HPA (on in prod) and `values-local.yaml` / `values-prod.yaml`, all linted in CI ([HELM.md#autoscaling](HELM.md#autoscaling), [HELM.md#environments](HELM.md#environments))
+  - [x] HPA (off by default, needs metrics-server) and `values-local.yaml`, both linted in CI ([HELM.md#autoscaling](HELM.md#autoscaling), [HELM.md#local-values](HELM.md#local-values))
 - **[L85](../README.md?plain=1#L85): CI/CD Pipeline container and binary releases**
   - [x] `app-ci.yml` + `helm-ci.yml` + `common-ci.yml`, path-filtered ([CI.md#workflow-split](CI.md#workflow-split)); shared actions; act for local runs
   - [x] Tests + Security summary tables in every run ([CI.md#build-summary](CI.md#build-summary))
@@ -116,12 +117,12 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Tool, Go, minikube, trivy DB and schema downloads cached across runs ([CI.md#tool-cache](CI.md#tool-cache))
   - [x] Every check gating: lint, unit tests and scans fail fast; e2e runs all suites, then fails on any ([CI.md#gating](CI.md#gating))
   - [x] Fixed the existing `main.go` findings (golangci-lint, `go vet`, gosec) without changing behavior; e2e untouched ([CI.md#gosec-exceptions](CI.md#gosec-exceptions))
-  - [ ] `release.yml` + `cd.yml` (placeholders), see L63–L65
+  - [x] `release.yml`: digest-only build, scan gate, signed tag, chart, binaries ([RELEASE.md](RELEASE.md)). Deploys are out of scope: no CD workflow
 - **[L86](../README.md?plain=1#L86): Multi-Architecture builds**: see L62
 - **[L87](../README.md?plain=1#L87): Security Scanning and release prevention for critical and high vulnerabilities**: see L50–L51
 - **[L90](../README.md?plain=1#L90)–[L94](../README.md?plain=1#L94): Architecture decisions, Scaling strategy, Cloud deployment considerations, Security measures, Maintaining image versions and tags and removing old ones**
   - [x] Per-area reference docs (`CI.md`, `CONTAINER.md`, `HELM.md`, `LOCAL-TESTING.md`), [CHANGELOG.md](CHANGELOG.md) per PR
-  - [ ] Docs for scaling (HPA), security, EKS, versioning and image retention
+  - [x] [EXPLAIN.md](EXPLAIN.md): deployment, scaling, security, CI/CD, versioning, EKS, global pulls, stale versions
   - [x] Weekly GHCR cleanup (`cleanup.yml`): keeps releases, recent commits, live-branch caches and index children; dry-run on demand ([CI.md#image-cleanup](CI.md#image-cleanup))
 
 ## Deliverables
@@ -131,22 +132,22 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L101](../README.md?plain=1#L101): `k8s/` manifests**
   - [x] Helm chart `helm/echo-pong` instead of raw manifests ([HELM.md](HELM.md))
 - **[L102](../README.md?plain=1#L102): `.github/workflows/` CI/CD pipeline**
-  - [x] `app-ci.yml`, `helm-ci.yml`; [ ] `release.yml`, `cd.yml`
+  - [x] `app-ci.yml`, `helm-ci.yml`, `common-ci.yml`, `release.yml`, `cleanup.yml`, reusable `scan-*.yml` ([GITHUB.md](GITHUB.md))
 - **[L103](../README.md?plain=1#L103): Documentation of your approach**
-  - [ ] Docs entry point linking every area; explain `helm/` and `src/` vs the README's `k8s/` and root `Dockerfile`
+  - [x] Docs entry point [docs/README.md](README.md): every doc, and why `helm/` + `src/Dockerfile` instead of `k8s/` + root `Dockerfile`
 - **[L105](../README.md?plain=1#L105): Use Minikube/Kind for testing. Be prepared to explain real cloud deployment strategy.**
   - [x] `minikube-e2e.sh` deploys the chart and tests through the Gateway, locally and in CI ([LOCAL-TESTING.md#minikube-e2e](LOCAL-TESTING.md#minikube-e2e))
   - [x] `scripts/minikube-up.sh`: local build or GHCR tag, deploy, real ingress via `minikube tunnel`, `--test` runs every suite ([LOCAL-TESTING.md#minikube-up](LOCAL-TESTING.md#minikube-up))
-  - [ ] EKS deployment doc (see L114)
+  - [x] EKS deployment: [EXPLAIN.md#going-cloud-with-eks](EXPLAIN.md#going-cloud-with-eks)
 
 ## To explain
 
-- **[L108](../README.md?plain=1#L108): The deployment strategy**: [ ] doc (Helm, rolling update, Gateway)
-- **[L109](../README.md?plain=1#L109): The scaling strategy**: [ ] doc (HPA, replica floor, PDB)
-- **[L110](../README.md?plain=1#L110): The security measures**: [ ] `SECURITY.md` (summarise L49–L53)
-- **[L111](../README.md?plain=1#L111): The CI/CD pipeline**: [x] [CI.md](CI.md); [ ] release + CD sections
-- **[L112](../README.md?plain=1#L112): The multi-architecture builds**: [x] [CI.md#build](CI.md#build), [CONTAINER.md#cross-compile](CONTAINER.md#cross-compile)
-- **[L113](../README.md?plain=1#L113): The versioning and tagging strategy**: [ ] `RELEASE.md`
-- **[L114](../README.md?plain=1#L114): Going cloud with EKS and how to deploy the application to EKS**: [ ] doc (EKS, NLB via `gateway.serviceType: LoadBalancer`)
-- **[L115](../README.md?plain=1#L115): How to allow teams from across the world to pull the image fast using AWS solutions**: [ ] doc (ECR cross-region replication / pull-through cache)
-- **[L116](../README.md?plain=1#L116): How to manage older and stale versions of the application**: [x] scheduled cleanup ([CI.md#image-cleanup](CI.md#image-cleanup)); [ ] strategy doc
+- **[L108](../README.md?plain=1#L108): The deployment strategy**: [x] [EXPLAIN.md#deployment-strategy](EXPLAIN.md#deployment-strategy)
+- **[L109](../README.md?plain=1#L109): The scaling strategy**: [x] [EXPLAIN.md#scaling-strategy](EXPLAIN.md#scaling-strategy)
+- **[L110](../README.md?plain=1#L110): The security measures**: [x] [EXPLAIN.md#security-measures](EXPLAIN.md#security-measures)
+- **[L111](../README.md?plain=1#L111): The CI/CD pipeline**: [x] [EXPLAIN.md#cicd-pipeline](EXPLAIN.md#cicd-pipeline), [CI.md](CI.md), [RELEASE.md](RELEASE.md)
+- **[L112](../README.md?plain=1#L112): The multi-architecture builds**: [x] [EXPLAIN.md#multi-architecture-builds](EXPLAIN.md#multi-architecture-builds)
+- **[L113](../README.md?plain=1#L113): The versioning and tagging strategy**: [x] [EXPLAIN.md#versioning-and-tagging-strategy](EXPLAIN.md#versioning-and-tagging-strategy), [RELEASE.md#versioning](RELEASE.md#versioning)
+- **[L114](../README.md?plain=1#L114): Going cloud with EKS and how to deploy the application to EKS**: [x] [EXPLAIN.md#going-cloud-with-eks](EXPLAIN.md#going-cloud-with-eks)
+- **[L115](../README.md?plain=1#L115): How to allow teams from across the world to pull the image fast using AWS solutions**: [x] [EXPLAIN.md#fast-global-image-pulls-with-aws](EXPLAIN.md#fast-global-image-pulls-with-aws)
+- **[L116](../README.md?plain=1#L116): How to manage older and stale versions of the application**: [x] [EXPLAIN.md#managing-older-and-stale-versions](EXPLAIN.md#managing-older-and-stale-versions), [CI.md#image-cleanup](CI.md#image-cleanup)

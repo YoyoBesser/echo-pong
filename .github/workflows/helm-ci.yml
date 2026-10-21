@@ -45,8 +45,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CHART: helm/echo-pong
-      # Every values file is linted: base + values-<env>.yaml. See docs/HELM.md#environments
-      ENVS: default local prod
+      # Base values and values-local.yaml are both linted. See docs/HELM.md#local-values
+      ENVS: default local
     steps:
       - uses: actions/checkout@v7  # latest: https://github.com/actions/checkout/releases (checked 2026-10-21)
       - id: tools

@@ -12,7 +12,7 @@ Rules for writing docs in `docs/`. Repo-wide rules: [../AGENTS.md](../AGENTS.md)
 
 Code comments stay short and point here (`docs/CI.md#script-injection`), so the depth lives in these files.
 
-- One file per area, upper-case: `CI.md`, `RELEASE.md`, `CD.md`, `CONTAINER.md`, `HELM.md`, `SECURITY.md`, ...
+- One file per area, upper-case: `CI.md`, `RELEASE.md`, `CONTAINER.md`, `HELM.md`, `LOCAL-TESTING.md`, `GITHUB.md`, `EXPLAIN.md`, ... Add new docs to the index in [`docs/README.md`](README.md).
 - One `##`/`###` heading per linkable topic. The anchor is GitHub's slug: lowercase, spaces become `-`, punctuation dropped (`## Script injection` → `#script-injection`).
 - Headings are an API. Before renaming or deleting one, find inbound links (`grep -rn 'docs/CI.md#script-injection' .`) and update them in the same change.
 - Each section opens with the decision or rule in 1-2 sentences, then the reasoning, then alternatives considered if relevant.

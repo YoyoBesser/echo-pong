@@ -1,4 +1,4 @@
-# minikube via scripts/minikube-up.sh: Envoy as LoadBalancer for minikube tunnel. See docs/HELM.md#environments
+# minikube via scripts/minikube-up.sh: Envoy as LoadBalancer for minikube tunnel. See docs/HELM.md#local-values
 gateway:
   serviceType: LoadBalancer
   port: 8080

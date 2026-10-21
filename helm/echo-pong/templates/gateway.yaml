@@ -18,9 +18,6 @@ spec:
     kubernetes:
       envoyService:
         type: {{ .Values.gateway.serviceType }}
-        {{- with .Values.gateway.serviceAnnotations }}
-        annotations: {{- toYaml . | nindent 10 }}
-        {{- end }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

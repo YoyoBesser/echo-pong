@@ -1,13 +1,12 @@
 # Helm
 
-Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, optional HPA, the Gateway API objects, and the Envoy Gateway subchart, plus per-environment values ([Environments](#environments)). It passes the [kube-linter policy](CI.md#kube-linter-policy) and the [trivy gate](CI.md#trivy-config).
+Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccount, PDB, NetworkPolicy, optional HPA, the Gateway API objects, and the Envoy Gateway subchart, plus [local values](#local-values) for minikube. It passes the [kube-linter policy](CI.md#kube-linter-policy) and the [trivy gate](CI.md#trivy-config).
 
 | Value | Default | Purpose |
 |---|---|---|
 | `replicaCount` | `2` | Pods behind the Service (ignored when autoscaling) |
 | `autoscaling.*` | off; min 2, max 6, 70% CPU | See [Autoscaling](#autoscaling) |
 | `imagePullSecrets` | `[]` | See [Image pull](#image-pull) |
-| `gateway.serviceAnnotations` | `{}` | Annotations on the Envoy Service, e.g. AWS NLB settings |
 | `rollout.strategy`, `pdb.*`, `antiAffinity.enabled` | RollingUpdate 0/1, PDB `minAvailable: 1`, on | See [Zero downtime](#zero-downtime) |
 | `preStopSleepSeconds`, `terminationGracePeriodSeconds` | `5`, `30` | See [Zero downtime](#zero-downtime) |
 | `preferredArch` | `arm64` | See [Scheduling](#scheduling) |
@@ -30,7 +29,7 @@ Chart: [`helm/echo-pong`](../helm/echo-pong): Deployment, Service, ServiceAccoun
 - [Pod Security Admission](#pod-security-admission)
 - [Zero downtime](#zero-downtime)
 - [Autoscaling](#autoscaling)
-- [Environments](#environments)
+- [Local values](#local-values)
 - [Image pull](#image-pull)
 - [Scheduling](#scheduling)
 - [Resources](#resources)
@@ -102,19 +101,13 @@ Together with 2 replicas and the startup/readiness gates ([Probes](#probes)), th
 
 kube-linter's `minimum-two-replicas` would then flag the Deployment, so it carries an exception annotation. The floor is still enforced on the HPA by `hpa-minimum-two-replicas` and on the PDB by `pdb-min-available`: rendering with `minReplicas: 1` fails both.
 
-It's off in the base values because an HPA needs metrics-server, which a bare minikube doesn't run. It's on in `values-prod.yaml` (EKS ships metrics-server as an add-on).
+It's off by default because an HPA needs metrics-server, which a bare minikube doesn't run. Turn it on (`--set autoscaling.enabled=true`) on a cluster that has metrics-server, e.g. EKS with its metrics-server add-on.
 
-## Environments
+## Local values
 
-Base `values.yaml` holds secure, cluster-agnostic defaults. Each environment overrides only what differs:
+The base `values.yaml` holds secure, cluster-agnostic defaults. [`values-local.yaml`](../helm/echo-pong/values-local.yaml) overrides only what [`scripts/minikube-up.sh`](LOCAL-TESTING.md#minikube-up) needs: Envoy as a `LoadBalancer` on port 8080 for `minikube tunnel`, and `pullPolicy: Never`, because the image is loaded into minikube rather than pulled. The CI minikube e2e uses the base values (ClusterIP + port-forward).
 
-| File | For | Overrides |
-|---|---|---|
-| (none) | CI minikube e2e | none: ClusterIP, fixed 2 replicas |
-| [`values-local.yaml`](../helm/echo-pong/values-local.yaml) | [`scripts/minikube-up.sh`](LOCAL-TESTING.md#minikube-up) | Envoy as `LoadBalancer` on 8080 for `minikube tunnel`; `pullPolicy: Never` (image loaded into minikube) |
-| [`values-prod.yaml`](../helm/echo-pong/values-prod.yaml) | EKS | Autoscaling 3–10; Envoy `LoadBalancer` with AWS Load Balancer Controller annotations (internet-facing NLB, IP targets); hostname; higher CPU request |
-
-Helm CI lints, renders, schema-checks, policy-checks and trivy-gates every one of them ([CI.md#chart-lint](CI.md#chart-lint)).
+Helm CI lints, renders, schema-checks, policy-checks and trivy-gates both the base values and `values-local.yaml` ([CI.md#chart-lint](CI.md#chart-lint)).
 
 ## Image pull
 

@@ -70,7 +70,6 @@ service:
 gateway:
   className: echo-pong
   serviceType: ClusterIP
-  serviceAnnotations: {}
   port: 80
   hostnames: []
 

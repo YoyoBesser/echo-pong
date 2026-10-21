@@ -198,7 +198,7 @@ The secret file goes in with `docker create` + `docker cp`, not a bind mount (se
 
 ## Chart lint
 
-`helm-ci.yml` checks [`helm/echo-pong`](../helm/echo-pong), once for each values file (base, `values-local.yaml`, `values-prod.yaml`; see [HELM.md#environments](HELM.md#environments)), in three layers:
+`helm-ci.yml` checks [`helm/echo-pong`](../helm/echo-pong), once for the base values and once with `values-local.yaml` ([HELM.md#local-values](HELM.md#local-values)), in three layers:
 
 0. `helm dependency build` fetches the [Envoy Gateway subchart](HELM.md#envoy-gateway) pinned in `Chart.lock`. `helm/*/charts/` is gitignored.
 1. `helm lint --strict`: chart structure and templates. Warnings fail too.

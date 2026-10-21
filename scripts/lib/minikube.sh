@@ -87,9 +87,12 @@ mk_rollout_check() {
   sleep 5 # old pods finish terminating
   kill "$poller" 2>/dev/null || true
   wait "$poller" 2>/dev/null || true
-  total="$(wc -l <"$codes" | tr -d ' ')"
-  bad="$(grep -cv '^200$' "$codes" || true)"
-  log "rollout check: $total requests, $bad not 200 ($(sort "$codes" | uniq -c | tr -s ' ' | tr '\n' ','))"
+  # Snapshot once: a curl still in flight may append after the poller is killed.
+  local snapshot
+  snapshot="$(cat "$codes")"
   rm -f "$codes"
+  total="$(grep -c . <<<"$snapshot" || true)"
+  bad="$(grep -cv '^200$' <<<"$snapshot" || true)"
+  log "rollout check: $total requests, $bad not 200 ($(sort <<<"$snapshot" | uniq -c | tr -s ' ' | tr '\n' ','))"
   [[ "$total" -gt 0 && "$bad" -eq 0 ]]
 }
