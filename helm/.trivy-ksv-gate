@@ -1,9 +1,0 @@
-# Trivy KSV checks that fail helm-ci; one per line, README line it answers. See docs/CI.md#trivy-config
-KSV-0001  # README L49: No containers running as root (allowPrivilegeEscalation: false)
-KSV-0012  # README L49: No containers running as root (runAsNonRoot: true)
-KSV-0020  # README L49: No containers running as root (runAsUser > 10000)
-KSV-0021  # README L49: No containers running as root (runAsGroup > 10000)
-KSV-0014  # README L53: Proper filesystem isolation (readOnlyRootFilesystem: true)
-KSV-0003  # README L83: Container Security (capabilities drop ALL)
-KSV-0030  # README L83: Container Security (seccompProfile RuntimeDefault)
-KSV-0104  # README L83: Container Security (seccomp profile set)

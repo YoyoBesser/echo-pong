@@ -38,9 +38,15 @@ The Go build stage runs on `$BUILDPLATFORM` and cross-compiles with `GOOS=$TARGE
 
 ## Go toolchain
 
-`src/go.mod` says `go 1.24`, the minimum language version (README L75), and `toolchain go1.27.3`, the compiler actually used. The build stage's `golang:1.27.3` tag matches the toolchain line. Go 1.24 is end of life: building with it shipped 22 HIGH stdlib CVEs (net/http, crypto/tls, x509, ...) that are only fixed in Go ≥ 1.26.9 / 1.27.2. With go1.27.3, trivy and govulncheck report none.
+`src/go.mod` says `go 1.24`, the minimum language version (README L75), and `toolchain go1.27.3`, the compiler actually used. That `toolchain` line is the only place the Go version is pinned. Go 1.24 is end of life: building with it shipped 22 HIGH stdlib CVEs (net/http, crypto/tls, x509, ...) that are only fixed in Go ≥ 1.26.9 / 1.27.2. With go1.27.3, trivy reports none.
 
-The language version stays 1.24, so the code still builds with any Go ≥ 1.24. CI picks the toolchain from the same line (setup-go reads `toolchain`), so the linters, govulncheck and the image all see the same stdlib. Bump both lines together.
+Everything reads that line:
+
+- **Dockerfile:** the builder is `golang:1.24` (the language minimum) with `GOTOOLCHAIN=auto`. Go then downloads the `toolchain` version itself, verified against the Go checksum database. A `COPY go.mod` + `go version` layer caches that download until `go.mod` changes.
+- **CI:** setup-go reads `toolchain`, so lint, tests and release binaries use the same compiler.
+- **Locally:** any Go ≥ 1.24 switches to it automatically.
+
+To bump Go, change the `toolchain` line only.
 
 ## Version
 

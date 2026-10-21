@@ -25,7 +25,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 - **Ingress:** Envoy proxy Service is `ClusterIP` by default. Nothing is exposed directly. On EKS, set `gateway.serviceType=LoadBalancer` to get an NLB.
 - **Proof:** CI deploys the chart to minikube on amd64 and arm64 and tests through the Gateway ([CI.md#minikube-e2e](CI.md#minikube-e2e)).
 - **Shutdown:** a `preStop` sleep keeps the pod serving while Envoy drops its endpoint, then SIGTERM drains in-flight requests before exit ([HELM.md#zero-downtime](HELM.md#zero-downtime)).
-- **Proven:** every PR polls `/ping` through the Gateway during a rolling restart and fails on any non-200 ([CI.md#rollout-verification](CI.md#rollout-verification)). With the protections turned off, it catches a 503.
+- **Tested:** every PR polls `/ping` through the Gateway during a rolling restart on a single-node minikube, and fails on any non-200 ([CI.md#rollout-verification](CI.md#rollout-verification)). With the protections turned off, it caught a 503. Node drains and multi-node clusters aren't tested.
 
 ## Scaling strategy
 
@@ -44,10 +44,10 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 
 - **Image:** distroless `static` base, static Go binary, no package manager ([CONTAINER.md#base-image](CONTAINER.md#base-image)). Runs as numeric UID `65532`, so `runAsNonRoot` can verify it ([CONTAINER.md#non-root](CONTAINER.md#non-root)). `.dockerignore` allowlists only `go.mod` and `*.go`. Trade-off: a busybox shell is included for debugging ([CONTAINER.md#busybox](CONTAINER.md#busybox)).
 - **Pod:** non-root, no privilege escalation, `readOnlyRootFilesystem`, drop `ALL` capabilities, seccomp `RuntimeDefault` ([HELM.md#security-context](HELM.md#security-context)). Dedicated ServiceAccount with no token mounted.
-- **Pinned twice:** the `trivy config` gate fails CI if any setting is removed ([CI.md#trivy-config](CI.md#trivy-config)). The e2e namespace enforces Pod Security Admission `restricted`, so the API server refuses a regressed pod ([HELM.md#pod-security-admission](HELM.md#pod-security-admission)).
-- **Network:** no direct internet access. Only Envoy reaches the app (ClusterIP Services, and a NetworkPolicy allowing only Envoy pods).
-- **Secrets:** the token lives in an out-of-band Kubernetes Secret, mounted read-only. Never in values or repo ([HELM.md#auth-secret](HELM.md#auth-secret)). trivy fs and gitleaks scan the working tree and full git history on every commit ([CI.md#repo-scan](CI.md#repo-scan)).
-- **Code and image scans:** gosec (SAST) and govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca)). trivy on each arch image fails on any CRITICAL/HIGH, with unreachable Go CVEs filtered out ([CI.md#image-scan](CI.md#image-scan)).
+- **Regressions caught:** kube-linter in Helm CI, and Pod Security Admission `restricted` on the e2e namespace, which refuses a regressed pod. PSA is enforced only in e2e; a real cluster has to label its namespaces too ([HELM.md#pod-security-admission](HELM.md#pod-security-admission)).
+- **Network:** no direct exposure. Only Envoy reaches the app (ClusterIP Services, and a NetworkPolicy allowing only Envoy pods). Egress isn't restricted.
+- **Secrets:** the token lives in an out-of-band Kubernetes Secret, mounted read-only. Never in values or repo ([HELM.md#auth-secret](HELM.md#auth-secret)). gitleaks scans the full git history on every commit ([CI.md#repo-scan](CI.md#repo-scan)).
+- **Code and image scans:** gosec (SAST) via golangci-lint on every PR ([CI.md#sast-and-sca](CI.md#sast-and-sca)). trivy on each arch image (OS packages, Go stdlib and modules) fails on any CRITICAL/HIGH, in CI and as the release gate ([CI.md#image-scan](CI.md#image-scan)).
 - **Supply chain:** every CI tool is pinned and checksum-verified ([CI.md#tool-pins](CI.md#tool-pins)). Untrusted input reaches scripts only via `env:` ([CI.md#script-injection](CI.md#script-injection)). `packages: write` is granted only to jobs that push.
 - **On EKS:** IRSA/Pod Identity instead of node credentials, Secrets from AWS Secrets Manager via External Secrets, KMS envelope encryption for etcd, private API endpoint, ECR scan-on-push as a second scanner.
 
@@ -58,7 +58,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 | Workflow | Does |
 |---|---|
 | `app-ci.yml` | Go lint, unit tests, SAST/SCA, multi-arch build to GHCR, image scan, e2e (container, static binary, minikube, zero-downtime rollout) on amd64 + arm64 |
-| `helm-ci.yml` | helm lint, kubeconform, kube-linter, trivy config on the rendered chart |
+| `helm-ci.yml` | helm lint, kubeconform, kube-linter on the rendered chart |
 | `common-ci.yml` | actionlint, ruff, pytest (100% coverage), doc links, repo secret scan. No path filter |
 | `release.yml` | On `vX.Y.Z` tag: build by digest, same scans as gate, then tag, binaries, GitHub Release ([RELEASE.md](RELEASE.md)) |
 | `cleanup.yml` | Weekly GHCR retention |
@@ -98,7 +98,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 
 ## Going cloud with EKS
 
-[L114](../README.md?plain=1#L114). The same chart deploys to EKS. Only values and cluster add-ons change.
+[L114](../README.md?plain=1#L114). A design, not built or tested: the same chart deploys to EKS. Only values and cluster add-ons change.
 
 **Cluster (Terraform or eksctl):**
 
@@ -113,7 +113,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 2. Secret: store the token in AWS Secrets Manager. External Secrets syncs it into `echo-pong-auth`.
 3. Ingress: `gateway.serviceType=LoadBalancer` gives an NLB in front of Envoy ([HELM.md#envoy-gateway](HELM.md#envoy-gateway)). TLS via ACM on the NLB, or cert-manager on the Gateway. Optional AWS WAF via CloudFront or an ALB in front.
 4. Shared cluster: install Envoy Gateway once, separately, and set `envoy-gateway.enabled=false` in the app release.
-5. Deploy: a workflow assumes an IAM role via GitHub OIDC (no long-lived AWS keys), then runs `helm upgrade --install --atomic` with the released chart version. Or GitOps (Argo CD) watching a values repo.
+5. Deploy: a workflow assumes an IAM role via GitHub OIDC (no long-lived AWS keys), then runs `helm upgrade --install --atomic` with the chart at the release tag. Or GitOps (Argo CD) watching a values repo.
 6. Observability: CloudWatch Container Insights or Prometheus/Grafana; Envoy access logs.
 
 ## Fast global image pulls with AWS
@@ -128,7 +128,7 @@ Answers to the README's "You will be asked to explain the following" ([L107](../
 
 ## Managing older and stale versions
 
-[L116](../README.md?plain=1#L116). A weekly cleanup workflow applies a retention policy to GHCR. Releases are never deleted ([CI.md#image-cleanup](CI.md#image-cleanup)).
+[L116](../README.md?plain=1#L116). A weekly cleanup workflow applies a retention policy to GHCR. It hasn't run yet; the policy is unit-tested. Releases are never deleted ([CI.md#image-cleanup](CI.md#image-cleanup)).
 
 - **Kept:** every `vX.Y.Z`, `main-cache`, caches of live branches, `<sha>` images under 14 days, unknown tags.
 - **Deleted:** `<sha>` images over 14 days, caches of deleted branches, untagged versions not referenced by a kept index.

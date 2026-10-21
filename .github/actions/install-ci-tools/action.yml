@@ -3,7 +3,7 @@ description: Install the pinned toolchain for one CI suite, cached across runs. 
 
 inputs:
   suite:
-    description: "Which toolchain to install: app (Go, golangci-lint incl. gosec, staticcheck, govulncheck), helm (helm, kubeconform, kube-linter, trivy), minikube (Go, helm, minikube, kubectl), scan (trivy + govulncheck plugin), repo (trivy, gitleaks), release (Go) or github (uv + locked Python deps, actionlint)."
+    description: "Which toolchain to install: app (Go, golangci-lint), helm (helm, kubeconform, kube-linter), minikube (Go, helm, minikube, kubectl), scan (trivy), repo (gitleaks), release (Go) or github (uv + locked Python deps, actionlint)."
     required: true
 
 outputs:
@@ -24,14 +24,11 @@ runs:
         # Comments stripped before writing outputs; the hash keys the tools cache.
         pins="$(sed -e 's/[[:space:]]*#.*$//' -e '/^$/d' <<'EOF'
         golangci-lint=v2.15.0            # latest: https://github.com/golangci/golangci-lint/releases (checked 2026-10-21)
-        staticcheck=2026.2.2             # latest: https://github.com/dominikh/go-tools/releases (checked 2026-10-21)
-        govulncheck=v1.9.0               # latest: https://github.com/golang/vuln/tags (checked 2026-10-21)
         helm=v4.3.1                      # latest: https://github.com/helm/helm/releases (checked 2026-10-21)
         kubeconform=v0.8.0               # latest: https://github.com/yannh/kubeconform/releases (checked 2026-10-21)
         kube-linter=v0.8.3               # latest: https://github.com/stackrox/kube-linter/releases (checked 2026-10-21)
         minikube=v1.39.0                 # latest: https://github.com/kubernetes/minikube/releases (checked 2026-10-21)
         trivy=v0.76.0                    # latest: https://github.com/aquasecurity/trivy/releases (checked 2026-10-21)
-        trivy-plugin-govulncheck=v0.1.4  # latest: https://github.com/DataDog/trivy-plugin-govulncheck/releases (checked 2026-10-21)
         gitleaks=v8.30.1                 # latest: https://github.com/gitleaks/gitleaks/releases (checked 2026-10-21)
         uv=0.13.4                        # latest: https://github.com/astral-sh/uv/releases (checked 2026-10-21)
         actionlint=v1.7.12               # latest: https://github.com/rhysd/actionlint/releases (checked 2026-10-21)
@@ -58,8 +55,8 @@ runs:
       uses: actions/cache@v6  # latest: https://github.com/actions/cache/releases (checked 2026-10-21)
       with:
         path: ~/.cache/ci-tools/${{ inputs.suite }}
-        # Also this file (install logic) and go.mod (govulncheck is built with its toolchain).
-        key: ci-tools-${{ inputs.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/install-ci-tools/action.yml', 'src/go.mod') }}
+        # Also this file, so changing the install logic rebuilds the cache.
+        key: ci-tools-${{ inputs.suite }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/actions/install-ci-tools/action.yml') }}
 
     # Go version comes from src/go.mod, not a pin here. Module + build cache keyed on go.mod.
     - if: inputs.suite == 'app' || inputs.suite == 'minikube' || inputs.suite == 'release'
@@ -67,24 +64,16 @@ runs:
       with:
         go-version-file: src/go.mod
         cache-dependency-path: src/go.mod
-    # govulncheck: go install with the module's toolchain (must read its stdlib). See docs/CI.md#sast-and-sca
     - if: inputs.suite == 'app' && steps.tools-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         GOLANGCI_LINT_VERSION: ${{ steps.pins.outputs.golangci-lint }}
-        STATICCHECK_VERSION: ${{ steps.pins.outputs.staticcheck }}
-        GOVULNCHECK_VERSION: ${{ steps.pins.outputs.govulncheck }}
       run: |
         set -euo pipefail
-        arch="$CI_TOOLS_ARCH" bin="$CI_TOOLS_BIN"
+        v="${GOLANGCI_LINT_VERSION#v}" gl="golangci-lint-$v-linux-$CI_TOOLS_ARCH" gl_url="https://github.com/golangci/golangci-lint/releases/download/$GOLANGCI_LINT_VERSION"
         cd "$RUNNER_TEMP"
-        v="${GOLANGCI_LINT_VERSION#v}" gl="golangci-lint-$v-linux-$arch" gl_url="https://github.com/golangci/golangci-lint/releases/download/$GOLANGCI_LINT_VERSION"
         curl -fsSLO "$gl_url/$gl.tar.gz" && curl -fsSL "$gl_url/golangci-lint-$v-checksums.txt" | grep " $gl.tar.gz\$" | sha256sum -c -
-        tar -xzf "$gl.tar.gz" && mv "$gl/golangci-lint" "$bin/"
-        sc="staticcheck_linux_$arch.tar.gz" sc_url="https://github.com/dominikh/go-tools/releases/download/$STATICCHECK_VERSION"
-        curl -fsSLO "$sc_url/$sc" && curl -fsSL "$sc_url/$sc.sha256" | sha256sum -c -
-        tar -xzf "$sc" && mv staticcheck/staticcheck "$bin/"
-        GOBIN="$bin" GOTOOLCHAIN=auto go install "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION"
+        tar -xzf "$gl.tar.gz" && mv "$gl/golangci-lint" "$CI_TOOLS_BIN/"
 
     - if: (inputs.suite == 'helm' || inputs.suite == 'minikube') && steps.tools-cache.outputs.cache-hit != 'true'
       shell: bash
@@ -140,13 +129,11 @@ runs:
         path: ~/.minikube/cache
         key: minikube-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.minikube }}-k8s-${{ steps.pins.outputs.k8s-version }}
 
-    # Checksum-verified release tarballs, no third-party action. See docs/CI.md#image-scan
-    - if: (inputs.suite == 'scan' || inputs.suite == 'helm' || inputs.suite == 'repo') && steps.tools-cache.outputs.cache-hit != 'true'
+    # Checksum-verified release tarball, no third-party action. See docs/CI.md#image-scan
+    - if: inputs.suite == 'scan' && steps.tools-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         TRIVY_VERSION: ${{ steps.pins.outputs.trivy }}
-        PLUGIN_VERSION: ${{ steps.pins.outputs.trivy-plugin-govulncheck }}
-        SUITE: ${{ inputs.suite }}
       run: |
         set -euo pipefail
         arch="$(echo "$CI_TOOLS_ARCH" | sed 's/amd64/64bit/; s/arm64/ARM64/')"
@@ -155,17 +142,8 @@ runs:
         cd "$RUNNER_TEMP"
         curl -fsSLO "$url/$tgz" && curl -fsSL "$url/trivy_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
         tar -xzf "$tgz" -C "$CI_TOOLS_BIN" trivy
-        [[ "$SUITE" == scan ]] || exit 0
-        v="${PLUGIN_VERSION#v}" tgz="trivy-govulncheck_${v}_linux-$CI_TOOLS_ARCH.tar.gz"
-        url="https://github.com/DataDog/trivy-plugin-govulncheck/releases/download/$PLUGIN_VERSION"
-        curl -fsSLO "$url/$tgz" && curl -fsSL "$url/trivy-govulncheck_${v}_checksums.txt" | grep " $tgz\$" | sha256sum -c -
-        mv "$tgz" "$CI_TOOLS_BIN/trivy-govulncheck.tar.gz"
-    # Plugin installs from the cached tarball: local, no network.
-    - if: inputs.suite == 'scan'
-      shell: bash
-      run: trivy plugin install "$CI_TOOLS_BIN/trivy-govulncheck.tar.gz"
     # Vulnerability DB + misconfig checks bundle, refreshed daily. See docs/CI.md#tool-cache
-    - if: inputs.suite == 'scan' || inputs.suite == 'helm'
+    - if: inputs.suite == 'scan'
       uses: actions/cache@v6  # latest: https://github.com/actions/cache/releases (checked 2026-10-21)
       with:
         path: ~/.cache/trivy

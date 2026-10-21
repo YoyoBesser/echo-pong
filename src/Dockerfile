@@ -17,14 +17,17 @@ FROM gcr.io/distroless/static-debian13:nonroot AS base
 COPY --from=busybox-rootfs /rootfs/ /
 
 # Cross-compile on the build platform. See docs/CONTAINER.md#cross-compile
-# Tag matches go.mod's toolchain line. See docs/CONTAINER.md#go-toolchain
-# latest: https://go.dev/dl/ (checked 2026-10-21)
-FROM --platform=$BUILDPLATFORM golang:1.27.3 AS build
+# 1.24 = go.mod's language minimum; the compiler comes from its toolchain line. See docs/CONTAINER.md#go-toolchain
+FROM --platform=$BUILDPLATFORM golang:1.24 AS build
+ENV GOTOOLCHAIN=auto
 ARG TARGETOS TARGETARCH
 # Stamped into the binary (--version, /health). See docs/CONTAINER.md#version
 ARG VERSION=dev
 WORKDIR /src
-COPY go.mod *.go ./
+COPY go.mod ./
+# Fetches go.mod's toolchain; cached as a layer until go.mod changes.
+RUN go version
+COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/ping-pong-app .
 
 FROM base

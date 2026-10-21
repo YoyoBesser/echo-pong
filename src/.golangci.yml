@@ -3,10 +3,13 @@ version: "2"
 run:
   build-tags: [e2e]
 
-# Hygiene only; vet, staticcheck, gosec run standalone. See docs/CI.md#go-lint
+# Correctness, hygiene and SAST (gosec) in one run; go vet still runs too. See docs/CI.md#go-lint
 linters:
   default: none
   enable:
+    - govet
+    - staticcheck
+    - gosec
     - errcheck
     - ineffassign
     - unused

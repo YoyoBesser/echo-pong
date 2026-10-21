@@ -64,6 +64,20 @@ Every PR entry requires:
 
 ---
 
+### 2026-10-21 - Minimal scanner stack, single Go version source, scoped doc claims
+
+**Intent:** Cut overlapping scanners and overstated doc claims while keeping the same README coverage.
+
+**Result:** Five scanners (golangci-lint, trivy, gitleaks, kubeconform, kube-linter) plus `go vet`, Go pinned only in `go.mod`, and docs that state what's tested and what isn't.
+
+- **authors:** YoyoBesser
+- **dependencies:** dropped staticcheck, gosec and govulncheck binaries (golangci-lint runs govet, staticcheck, gosec), `trivy-plugin-govulncheck`, trivy for chart and repo; Dockerfile builder is `golang:1.24` with `GOTOOLCHAIN=auto`, so `go.mod`'s `toolchain` line is the only Go pin
+- **workflows:** `scan-source.yml` removed; lint job = golangci-lint (lint + SAST) + `go vet`; `scan-image` = plain trivy image; `scan-repo` = gitleaks only; helm-ci drops `trivy config` and `helm/.trivy-ksv-gate`; release gate = image + secret scans
+- **delivery:** none (same image contents; compiler still go1.27.3)
+- **guardrails:** securityContext regressions caught by kube-linter (non-root, read-only FS) and PSA `restricted` in e2e (escalation, caps, seccomp); docs scope zero-downtime, PSA, registry pull, cleanup, SBOM and EKS claims to what's actually tested
+- **breaking changes:** none
+- **Action needed:** none
+
 ### 2026-10-21 - [#4](https://github.com/YoyoBesser/echo-pong/pull/4) - Busybox at standard paths (/bin/sh)
 
 **Intent:** Make the image's shell usable the normal way.

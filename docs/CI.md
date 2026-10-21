@@ -25,7 +25,6 @@
 - [Reusable scans](#reusable-scans)
 - [Repo scan](#repo-scan)
 - [Image scan](#image-scan)
-- [Trivy config](#trivy-config)
 - [Build summary](#build-summary)
 - [Common CI](#common-ci)
   - [Doc links](#doc-links)
@@ -38,8 +37,8 @@ CI is split by what changed:
 
 | Workflow | Runs on changes to | Jobs |
 |---|---|---|
-| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**`, `scripts/**`, `.github/scripts/**` | [Go lint](#go-lint), [SAST + SCA](#sast-and-sca) and [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [summary](#build-summary) |
-| [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint) + [trivy config](#trivy-config), [summary](#build-summary) |
+| [`app-ci.yml`](../.github/workflows/app-ci.yml) | `src/**`, `helm/**`, `scripts/**`, `.github/scripts/**` | [Go lint + SAST](#go-lint), [image scan](#image-scan) via [reusable scans](#reusable-scans), [multi-arch build](#build) (GHCR push, [cache](#build-cache)), [e2e](#e2e-tests) (incl. [minikube](#minikube-e2e)), [summary](#build-summary) |
+| [`helm-ci.yml`](../.github/workflows/helm-ci.yml) | `helm/**` | [Chart lint](#chart-lint), [summary](#build-summary) |
 | [`common-ci.yml`](../.github/workflows/common-ci.yml) | every change (no path filter) | [actionlint, ruff, pytest at 100% coverage, doc links](#common-ci), [repo secret scan](#repo-scan), [summary](#build-summary) |
 
 Both also run when their own workflow file or `.github/actions/**` changes, so a CI edit tests itself. App CI also runs on chart changes, because the minikube e2e deploys the in-repo chart. An app-only PR doesn't lint the chart.
@@ -75,28 +74,19 @@ On `pull_request`, `actions/checkout` fetches only the merge commit (`fetch-dept
 
 ## Go lint
 
-Five Go checks run on `src/`, each as its own step and [summary](#build-summary) row, all with the `e2e` build tag so the e2e tests are covered too. The `lint` job runs the three `tests` checks. gosec and govulncheck run in the reusable [`scan-source`](#reusable-scans) workflow, so release runs exactly the same ones:
+The `lint` job runs two steps on `src/`, both with the `e2e` build tag so the e2e tests are covered too:
 
 | Step | Kind | Catches |
 |---|---|---|
-| `golangci-lint (hygiene)` | tests | `errcheck`, `ineffassign`, `unused`, `errorlint` (`%w` wrapping), `bodyclose`, `misspell`, `gofmt`, configured in [`src/.golangci.yml`](../src/.golangci.yml) |
-| `go vet (correctness)` | tests | Suspicious constructs the compiler accepts (printf args, struct tags, copied locks) |
-| `staticcheck (correctness)` | tests | Bugs, dead code, deprecated APIs, simplifications |
-| `gosec (SAST)` | security | See [SAST and SCA](#sast-and-sca) |
-| `govulncheck (SCA)` | security | See [SAST and SCA](#sast-and-sca) |
+| `golangci-lint (lint + SAST)` | security | `govet`, `staticcheck`, `gosec` (SAST), `errcheck`, `errorlint`, `ineffassign`, `unused`, `bodyclose`, `misspell`, `gofmt`, configured in [`src/.golangci.yml`](../src/.golangci.yml) |
+| `go vet` | tests | The toolchain's own vet |
 
-golangci-lint is limited to hygiene linters (`default: none`). vet, staticcheck and gosec run standalone, so each tool reports once under its own name instead of twice. All versions are pinned (see [Tool pins](#tool-pins)). To run locally, see [LOCAL-TESTING.md#ci](LOCAL-TESTING.md#ci).
+`go vet` also runs standalone because golangci-lint's `govet` doesn't report everything plain `go vet` does. For example, it misses `fmt.Println arg list ends with redundant newline`, which `go vet` found in the original `main.go`. It costs nothing extra: it ships with Go. Versions are pinned (see [Tool pins](#tool-pins)). To run locally, see [LOCAL-TESTING.md#ci](LOCAL-TESTING.md#ci).
 
 ## SAST and SCA
 
-- **gosec** (SAST) scans our own Go code for security flaws: path traversal, unchecked errors, missing HTTP server timeouts, log injection.
-- **govulncheck** (SCA) checks the module's dependencies and the Go stdlib against the Go vulnerability database. It reports only vulnerabilities whose vulnerable symbols our code actually calls, which removes the false positives a version-only scanner reports.
-
-Both run on source. The built image is scanned separately (see [Image scan](#image-scan)).
-
-govulncheck is built with `go install`, using the module's toolchain (go1.27.3, see [CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain)), and type-checks against that same stdlib. `go install` verifies modules against the Go checksum database (sum.golang.org).
-
-gosec runs through golangci-lint (`golangci-lint run --enable-only gosec`). The standalone gosec v2.29.0, the latest as of 2026-10-21, bundles an `x/tools` that can't read go1.27 export data (`could not import encoding/json`). golangci-lint v2.15.0 bundles gosec on a newer `x/tools`. It honors the same `#nosec` directives and, on the original `main.go`, still reports G104, G114, G304 and G706. It lacks the newer G703 taint rule, which can come back when a standalone gosec supports go1.27. The tools cache key includes `src/go.mod`, so a toolchain bump rebuilds them. staticcheck's checksum-verified release binary handles go1.27 fine.
+- **SAST:** gosec, inside golangci-lint. The standalone gosec v2.29.0 (latest as of 2026-10-21) can't load go1.27 packages. golangci-lint's bundled gosec can, honors `#nosec`, and on the original `main.go` reported G104, G114, G304 and G706.
+- **SCA:** trivy on the built image ([Image scan](#image-scan)). It reads the Go binary's embedded build info, so it covers the stdlib and any Go modules as well as the OS packages. There's no separate source-level govulncheck. The cost is no reachability filtering: trivy can flag a stdlib CVE the app never calls. If that blocks a release, add a `.trivyignore` entry with the reason and an expiry rather than adding another scanner.
 
 ### Gosec exceptions
 
@@ -113,18 +103,19 @@ Every CI tool version lives in one block in [`.github/actions/install-ci-tools`]
 
 | Suite | Installs |
 |---|---|
-| `app` | Go, golangci-lint (also runs gosec), staticcheck, govulncheck |
-| `helm` | helm, kubeconform, kube-linter, trivy |
+| `app` | Go, golangci-lint |
+| `helm` | helm, kubeconform, kube-linter |
 | `minikube` | Go, helm, minikube, kubectl |
-| `scan` | trivy + `trivy-plugin-govulncheck` |
-| `repo` | trivy, gitleaks |
+| `scan` | trivy |
+| `repo` | gitleaks |
+| `release` | Go |
 | `github` | uv (then `uv sync --locked` in `.github/`), actionlint |
 
-An unknown suite fails fast. Binaries, including golangci-lint and helm, are fetched from upstream releases and checked against the published SHA-256 checksums, rather than through their setup actions, so they can be [cached](#tool-cache). One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl, so they always agree. To bump a tool, change one line there.
+An unknown suite fails fast. Binaries, including golangci-lint and helm, are fetched from upstream releases and checked against the published SHA-256 checksums, rather than through their setup actions, so they can be [cached](#tool-cache). One `k8s-version` pin (1.37.0, the newest that kubeconform schemas, minikube v1.39.0 and kubectl all support) drives kubeconform's schemas, the minikube cluster and kubectl. To bump a tool, change one line there.
 
-Exceptions: the Go version comes from `src/go.mod`, so the toolchain matches the module. Python and its dev tools come from `.github/.python-version`, `pyproject.toml` and `uv.lock` (see [Common CI](#common-ci)). Actions are pinned by major tag where they're used (`astral-sh/setup-uv` by exact tag, since it publishes no major tags).
+Exceptions: Go comes from `src/go.mod`, everywhere: setup-go in CI, and the Dockerfile builder ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain)). Python and its dev tools come from `.github/.python-version`, `pyproject.toml` and `uv.lock` (see [Common CI](#common-ci)). Actions are pinned by major tag where they're used (`astral-sh/setup-uv` by exact tag, since it publishes no major tags).
 
-Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so it's clear when it was last compared to upstream. The pins block strips these comments before writing `$GITHUB_OUTPUT`. All pins were on their latest release as of 2026-10-21, except `k8s-version` (see above) and the Go 1.24 toolchain, which comes from the original `go.mod`.
+Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, recording when it was last compared to upstream. The pins block strips these comments before writing `$GITHUB_OUTPUT`.
 
 ### Tool cache
 
@@ -132,14 +123,14 @@ Every pin carries a `# latest: <release page> (checked YYYY-MM-DD)` comment, so 
 
 | Cache | Path | Key | Saves |
 |---|---|---|---|
-| Tools | `~/.cache/ci-tools/<suite>` | suite, OS, arch, hash of `install-ci-tools/action.yml` + `src/go.mod` | Every downloaded binary, plus the trivy plugin tarball. On a hit, all download steps are skipped. Changing any pin, the install logic or the Go toolchain changes the hash, so the cache never serves stale tools |
-| Go | setup-go's module + build cache | Go version + `src/go.mod` | Compiled packages for `go test`/vet, and the `go install` of govulncheck (including the newer toolchain it needs) |
+| Tools | `~/.cache/ci-tools/<suite>` | suite, OS, arch, hash of `install-ci-tools/action.yml` | Every downloaded binary; on a hit, the download steps are skipped. Changing a pin or the install logic changes the key |
+| Go | setup-go's module + build cache | Go version + `src/go.mod` | Compiled packages for `go test` and vet |
 | minikube | `~/.minikube/cache` | arch, minikube version, `k8s-version` | Preload tarball + kicbase image (~1 GB) that `minikube start` would download |
-| trivy | `~/.cache/trivy` | OS + UTC date (restore from any older day) | Vulnerability DB and misconfig checks bundle. Trivy still refreshes them when stale |
+| trivy | `~/.cache/trivy` | OS + UTC date (restore from any older day) | Vulnerability DB. Trivy still refreshes it when stale |
 | kubeconform | `~/.cache/kubeconform` | `k8s-version` + hash of `helm/**` | Core and CRD-catalog JSON schemas (`-cache` flag) |
 | uv | setup-uv's cache | `.github/uv.lock` | Python wheels and the interpreter |
 
-Each cache is saved only when its key missed, so a hit costs a restore and no upload. Cache scope follows GitHub's rules: a PR branch can read caches from `main`, but not from other branches.
+Each cache is saved only when its key missed. Cache scope follows GitHub's rules: a PR branch can read caches from `main`, but not from other branches.
 
 ## Build
 
@@ -203,7 +194,7 @@ The secret file goes in with `docker create` + `docker cp`, not a bind mount (se
 0. `helm dependency build` fetches the [Envoy Gateway subchart](HELM.md#envoy-gateway) pinned in `Chart.lock`. `helm/*/charts/` is gitignored.
 1. `helm lint --strict`: chart structure and templates. Warnings fail too.
 2. `helm template --skip-tests` renders the manifests. Test hooks are skipped because they are throwaway pods, not deployed workload, and would otherwise trip the policy below.
-3. The rendered output goes through [kubeconform](#kubeconform) (schema), [kube-linter](#kube-linter-policy) (policy) and [trivy config](#trivy-config) (security misconfig).
+3. The rendered output goes through [kubeconform](#kubeconform) (schema) and [kube-linter](#kube-linter-policy) (policy).
 
 ### Kubeconform
 
@@ -215,7 +206,9 @@ CRDs (Gateway API `Gateway`/`HTTPRoute`/`GatewayClass`, Envoy `EnvoyProxy`) aren
 
 [`helm/.kube-linter.yaml`](../helm/.kube-linter.yaml) sets `doNotAutoAddDefaults: true` and lists every check explicitly. Each line carries a comment naming the README requirement it enforces, so the policy is the README's requirements made executable, and nothing more.
 
-kube-linter runs on the chart rendered **without** the Envoy Gateway subchart (`--set envoy-gateway.enabled=false`). The policy covers what this repo writes. The subchart's templates are third-party and can't satisfy every check (e.g. probes on its certgen Job). kubeconform and the trivy gate still cover the full render, and the subchart passes the trivy gate.
+kube-linter runs on the chart rendered **without** the Envoy Gateway subchart (`--set envoy-gateway.enabled=false`). The policy covers what this repo writes. The subchart's templates are third-party and can't satisfy every check (e.g. probes on its certgen Job). kubeconform still validates the full render.
+
+kube-linter only flags securityContext fields that are present and wrong, with two exceptions: `run-as-non-root` and `no-read-only-root-fs` also fire when the field is unset. An unset `allowPrivilegeEscalation`, missing drop-`ALL` or missing seccomp profile is caught at deploy time instead: the minikube e2e namespace enforces [Pod Security Admission `restricted`](HELM.md#pod-security-admission), so such pods are rejected and the e2e fails.
 
 Two custom checks set the replica floor to 2 (`minimum-two-replicas`, `hpa-minimum-two-replicas`) instead of the built-in 3. Two replicas plus a PDB keep a pod serving through a rolling update or a single node drain. README L59 (registry pull) has no static check. It's covered by deploying, not linting.
 
@@ -227,13 +220,13 @@ Every check gates the run. Nothing uses `continue-on-error` except the act-only 
 
 | Workflow | Fail-fast jobs |
 |---|---|
-| `app-ci.yml` | `lint` (golangci-lint, `go vet`, staticcheck), `test` (`go test -race -vet=off ./...`, unit tests only; vet runs in `lint`), `scan-source`, `scan-image` |
-| `helm-ci.yml` | `lint` (dependency build, helm lint, template, kubeconform, kube-linter, trivy config) |
+| `app-ci.yml` | `lint` (golangci-lint, `go vet`), `test` (`go test -race -vet=off ./...`, unit tests only; vet runs in `lint`), `scan-image` |
+| `helm-ci.yml` | `lint` (dependency build, helm lint, template, kubeconform, kube-linter) |
 | `common-ci.yml` | `lint`, `test`, `doc-links`, `scan-repo` |
 
-**Run everything, then fail** for e2e. In each arch's `e2e-tests` job, every suite after the first has `if: ${{ !cancelled() }}`. A failing suite doesn't stop the rest: CLI, API and minikube all run. The job still fails if any of them failed, and the summary shows exactly which ones. One e2e run tells you everything that's broken.
+**Run everything, then fail** for e2e. In each arch's `e2e-tests` job, every suite after the first has `if: ${{ !cancelled() }}`. A failing suite doesn't stop the rest: CLI, API and minikube all run. The job still fails if any of them failed, and the summary shows which ones.
 
-Everything passes since the original findings were fixed: `main.go` lint, vet and gosec ([Gosec exceptions](#gosec-exceptions)), the Go stdlib CVEs ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain)), and the chart ([HELM.md](HELM.md)). The e2e suites weren't changed, so the app's behavior is the same.
+Everything passes since the original findings were fixed: `main.go` lint, vet and gosec ([Gosec exceptions](#gosec-exceptions)), the Go stdlib CVEs ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain)), and the chart ([HELM.md](HELM.md)). The original e2e suites weren't changed.
 
 ## Minikube e2e
 
@@ -261,57 +254,34 @@ An earlier version also ran the e2e suites against the binary on stock `ubuntu` 
 
 ## Reusable scans
 
-Security scans are defined once, as reusable workflows (`on: workflow_call`), and called by both CI and release:
+The release-relevant scans are reusable workflows (`on: workflow_call`), called by both CI and release:
 
 | Workflow | Jobs | Checks |
 |---|---|---|
-| [`scan-source.yml`](../.github/workflows/scan-source.yml) | `scan-source` | gosec (SAST), govulncheck (SCA). See [SAST and SCA](#sast-and-sca) |
-| [`scan-image.yml`](../.github/workflows/scan-image.yml) | `scan-image (amd64)`, `scan-image (arm64)` | trivy vuln + image misconfig, govulncheck-filtered. See [Image scan](#image-scan) |
-| [`scan-repo.yml`](../.github/workflows/scan-repo.yml) | `scan-repo` | trivy fs + gitleaks secrets. See [Repo scan](#repo-scan) |
+| [`scan-image.yml`](../.github/workflows/scan-image.yml) | `scan-image (amd64)`, `scan-image (arm64)` | trivy: OS packages, Go binary, image config. See [Image scan](#image-scan) |
+| [`scan-repo.yml`](../.github/workflows/scan-repo.yml) | `scan-repo` | gitleaks over the full git history. See [Repo scan](#repo-scan) |
 
-A finding always fails the job; see [Gating](#gating).
+A finding fails the job; see [Gating](#gating).
 
-- `app-ci.yml` and `common-ci.yml` call them on every run.
-- `release.yml` calls them as the release gate (README L51, L87). `publish`, the only job that would tag `vX.Y.Z`, `needs:` both scans. A finding means no version tag, so nothing is released. `scan-image` scans the same `<image>:<sha>` digest that `publish` will retag, so what's released is exactly what was scanned.
+- `app-ci.yml` calls `scan-image`, and `common-ci.yml` calls `scan-repo`, on every run.
+- `release.yml` calls both as the release gate (README L51, L87). `publish`, the only job that tags `vX.Y.Z`, `needs:` both, so a finding means no version tag. `scan-image` scans the digest that `publish` then tags.
+- SAST (gosec) isn't repeated in release. It gates every PR in `app-ci.yml`'s `lint` job, and releases are cut from `main`.
 
 Results recorded inside a called workflow land in the caller's run, so the caller's `summary` job picks them up like any other job.
 
 ## Repo scan
 
-README L52 ("No secrets in codebase") is checked repo-wide by the reusable [`scan-repo.yml`](../.github/workflows/scan-repo.yml), called from [Common CI](#common-ci) on every commit and from release, both blocking:
+README L52 ("No secrets in codebase") is checked by the reusable [`scan-repo.yml`](../.github/workflows/scan-repo.yml), called from [Common CI](#common-ci) on every commit and from release, blocking. It runs `gitleaks git` over the full git history (`fetch-depth: 0`), so a secret that was committed and later deleted still fails. Findings are `--redact`ed in the log.
 
-- `trivy fs --scanners secret` on the working tree: every tracked and untracked file in the checkout.
-- `gitleaks git` on the full git history (`fetch-depth: 0`), so a secret that was committed and later deleted still fails. Findings are `--redact`ed in the log.
-
-It's blocking from the start, because both were clean on the repo when added (15 commits). A planted fake key fails both. To allow a known false positive, add a `.gitleaksignore` fingerprint or a trivy `--skip-files` entry, with a comment saying why.
+It was clean on the repo when added, and a planted fake key in a throwaway clone failed it. To allow a known false positive, add a `.gitleaksignore` fingerprint with a comment saying why.
 
 ## Image scan
 
-The reusable [`scan-image`](#reusable-scans) workflow scans each arch of the pushed index (one matrix leg per arch, [`trivy-image.sh`](../.github/scripts/trivy-image.sh), `trivy image --platform linux/<arch>`) for CRITICAL/HIGH vulnerabilities (OS packages and the Go binary) and image-config misconfigurations (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them.
+The reusable [`scan-image`](#reusable-scans) workflow scans each arch of the pushed index, one matrix leg per arch, with [`trivy-image.sh`](../.github/scripts/trivy-image.sh) (`trivy image --platform linux/<arch> --severity CRITICAL,HIGH --exit-code 1`). It covers OS packages, the Go binary (stdlib and modules, from its build info) and the image config (`--image-config-scanners misconfig`, e.g. running as root). It fails on any CRITICAL/HIGH finding, fixed upstream or not, because README L51 forbids shipping them. It scans the pushed image in GHCR, using the credentials `docker/login-action` wrote.
 
-Go-binary findings go through [`trivy-plugin-govulncheck`](https://github.com/DataDog/trivy-plugin-govulncheck) (v0.1.4). It runs govulncheck in binary mode on the image's Go binary, and drops (marks `not_affected`) the CVEs whose vulnerable code isn't reachable. The filtered JSON is then gated with `trivy convert --exit-code 1`, because the exit code of an output-plugin run doesn't reflect findings.
+trivy is installed from its checksum-verified release tarball rather than `aquasecurity/trivy-action`, so no third-party action code runs in the job.
 
-The plugin pulls the image itself (go-containerregistry, not trivy's cache or the Docker daemon), so the scan targets the pushed `<image>:<sha>` in GHCR. Unverified: which platform of the index the plugin extracts. The stdlib findings are the same on both arches, since it's one Go build. It authenticates with the credentials `docker/login-action` wrote. A tag that exists only in the local daemon makes the plugin fall back to Docker Hub and silently skip filtering.
-
-Both trivy and the plugin are installed from checksum-verified release tarballs rather than `aquasecurity/trivy-action`, so no third-party action code runs in the job. The plugin is installed from its tarball, not `trivy plugin install github.com/...`, which would fetch an unpinned manifest.
-
-Blind spot: busybox is copied in as a bare binary, with no package metadata, so trivy doesn't see its version (see [CONTAINER.md#busybox](CONTAINER.md#busybox)).
-
-## Trivy config
-
-kube-linter only flags fields that are present and wrong. A container with no `securityContext` at all passes `privilege-escalation-container` and a drop-`ALL` capabilities check. Trivy's Kubernetes checks (KSV) also require the safe values to be set explicitly, so `helm-ci.yml` runs `trivy config` on the rendered chart as well:
-
-1. The full report prints as a table. It's informational, and includes the Envoy Gateway subchart's RBAC.
-2. The gate fails only on the KSV IDs listed in [`helm/.trivy-ksv-gate`](../helm/.trivy-ksv-gate). Each has a comment naming the README line it answers, like the [kube-linter policy](#kube-linter-policy):
-
-| ID | Requires | README |
-|---|---|---|
-| KSV-0001 | `allowPrivilegeEscalation: false` | L49 |
-| KSV-0012 | `runAsNonRoot: true` | L49 |
-| KSV-0020 / KSV-0021 | `runAsUser` / `runAsGroup` > 10000 | L49 |
-| KSV-0014 | `readOnlyRootFilesystem: true` | L53 |
-| KSV-0003 | `capabilities.drop: [ALL]` | L83 |
-| KSV-0030 / KSV-0104 | seccomp `RuntimeDefault` | L83 |
+Blind spot: busybox is copied in as a bare binary, with no package metadata, so trivy doesn't match vulnerabilities against it. The release SBOM does list it (`busybox 1.38.0`, see [RELEASE.md#attestations](RELEASE.md#attestations)). See [CONTAINER.md#busybox](CONTAINER.md#busybox).
 
 ## Build summary
 
@@ -356,7 +326,9 @@ README L56. The `zero-downtime rollout` step in each arch's `e2e-tests` job runs
 
 It port-forwards the Envoy proxy Service, then polls `/ping` (with the token) every 100 ms through the Gateway. Meanwhile it runs `kubectl rollout restart` and waits for the rollout to finish, so every app pod is replaced. It fails if any response isn't `200`, and logs the request count and status breakdown.
 
-It has caught real downtime. With the protections turned off (`maxUnavailable: 1`, no `preStop` sleep), the same check fails with `211 requests, 1 not 200 (… 1 503)`. With the chart defaults ([HELM.md#zero-downtime](HELM.md#zero-downtime)), it passes with 0 failures.
+With the chart defaults ([HELM.md#zero-downtime](HELM.md#zero-downtime)) it passes with 0 failures. In a deliberately weakened config (`maxUnavailable: 1`, no `preStop` sleep), the same check failed with `211 requests, 1 not 200 (… 1 503)`, so it can detect dropped requests.
+
+Scope: a rolling restart on a single-node minikube, through one port-forwarded Envoy pod. It doesn't cover node drains, multi-node scheduling, or Envoy's own rollouts.
 
 ## Image cleanup
 
@@ -376,7 +348,7 @@ Branch slugs are computed with the same rule as `gather-metadata`'s `branch-slug
 
 Triggers:
 
-- **Weekly** (Mondays 03:17 UTC): live.
+- **Weekly** (Mondays 03:17 UTC): live. It hasn't run yet, so no live or dry run has been checked against GHCR. The policy is covered only by unit tests.
 - **Manual** (`workflow_dispatch`): `dry-run` (default `true`) only lists what would be deleted. `max-age-days` overrides the 14-day window.
 
 Every run writes a keep/delete table, with the reason for each version, to the run summary. Only the `cleanup` job gets `packages: write`. Scheduled and manual runs only start once the workflow is on `main`. Do a manual dry run before the first scheduled one. The script needs `gh` and the GitHub Packages API, so it doesn't run under act. Locally, it needs a token with `read:packages` (`gh auth refresh -s read:packages,delete:packages`).

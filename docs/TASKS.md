@@ -37,12 +37,11 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L49](../README.md?plain=1#L49): No containers running as root**
   - [x] Image runs as numeric UID `65532` ([CONTAINER.md#non-root](CONTAINER.md#non-root))
   - [x] kube-linter: `run-as-non-root`, `privileged-container`, `privilege-escalation-container`
-  - [x] Blocking gate: trivy config KSV-0001 (`allowPrivilegeEscalation`), KSV-0012 (`runAsNonRoot`) on the rendered chart ([CI.md#trivy-config](CI.md#trivy-config))
+  - [x] kube-linter `run-as-non-root` in Helm CI; PSA `restricted` in the e2e namespace rejects pods without `allowPrivilegeEscalation: false` ([HELM.md#pod-security-admission](HELM.md#pod-security-admission))
   - [x] Chart `securityContext`: `runAsNonRoot`, UID 65532, `allowPrivilegeEscalation: false`, drop `ALL` caps, seccomp `RuntimeDefault` ([HELM.md#security-context](HELM.md#security-context))
-  - [x] Pinned: 8-check blocking trivy gate + PSA `restricted` enforced in minikube e2e ([HELM.md#pod-security-admission](HELM.md#pod-security-admission))
 - **[L50](../README.md?plain=1#L50): All images must pass security scans**
-  - [x] trivy scans each arch image (vuln + image misconfig), Go CVEs filtered by `trivy-plugin-govulncheck` ([CI.md#image-scan](CI.md#image-scan), gating)
-  - [x] gosec (SAST) + govulncheck (SCA) on source ([CI.md#sast-and-sca](CI.md#sast-and-sca), gating)
+  - [x] trivy scans each arch image: OS packages, Go stdlib/modules, image config ([CI.md#image-scan](CI.md#image-scan), gating)
+  - [x] gosec (SAST) via golangci-lint on every PR ([CI.md#sast-and-sca](CI.md#sast-and-sca), gating)
 - **[L51](../README.md?plain=1#L51): No critical/high vulnerabilities should be released to production**
   - [x] Distroless static base keeps CVE surface near zero ([CONTAINER.md#base-image](CONTAINER.md#base-image))
   - [x] CI fails on CRITICAL/HIGH, fixed or not; 0 findings since the go1.27.3 toolchain bump ([CONTAINER.md#go-toolchain](CONTAINER.md#go-toolchain))
@@ -52,12 +51,12 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] Token only in an out-of-band Secret, never in values ([HELM.md#auth-secret](HELM.md#auth-secret))
   - [x] e2e generates a random token per run
   - [x] kube-linter: `env-var-secret`, `read-secret-from-env-var`
-  - [x] Repo-wide secret scan on every commit, blocking: trivy fs (working tree) + gitleaks (git history) ([CI.md#repo-scan](CI.md#repo-scan)); also in the release gate
+  - [x] gitleaks over the full git history on every commit, blocking ([CI.md#repo-scan](CI.md#repo-scan)); also in the release gate
 - **[L53](../README.md?plain=1#L53): Proper filesystem isolation**
   - [x] Distroless image; `.dockerignore` allowlist (`go.mod`, `*.go` only)
   - [x] Secret volume mounted `readOnly`
   - [x] kube-linter: `no-read-only-root-fs`, host mount, `docker-sock`, `host-pid`/`host-ipc` checks
-  - [x] Gate: trivy config KSV-0014 (`readOnlyRootFilesystem`) ([CI.md#trivy-config](CI.md#trivy-config))
+  - [x] kube-linter `no-read-only-root-fs` in Helm CI ([CI.md#kube-linter-policy](CI.md#kube-linter-policy))
   - [x] Chart `readOnlyRootFilesystem: true`; minikube e2e runs with it
 
 ## Kubernetes
@@ -67,7 +66,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] kube-linter: probes, replica floor 2, rolling update, anti-affinity, PDB checks ([CI.md#kube-linter-policy](CI.md#kube-linter-policy))
   - [x] `RollingUpdate` with `maxUnavailable: 0`, PDB, pod anti-affinity ([HELM.md#zero-downtime](HELM.md#zero-downtime))
   - [x] App graceful shutdown on SIGTERM (drain in-flight, exit 0) + `preStop` sleep ([HELM.md#zero-downtime](HELM.md#zero-downtime))
-  - [x] Zero-downtime rollout verified on every PR: 0 failed requests through the Gateway during a rolling restart ([CI.md#rollout-verification](CI.md#rollout-verification))
+  - [x] Rolling restart checked on every PR: 0 failed requests through the Gateway, single-node minikube ([CI.md#rollout-verification](CI.md#rollout-verification))
 - **[L57](../README.md?plain=1#L57): ARM64 architecture preferred**
   - [x] arm64 image built and e2e-tested on an arm64 runner
   - [x] `preferredDuringScheduling` node affinity for `kubernetes.io/arch: arm64` ([HELM.md#scheduling](HELM.md#scheduling))
@@ -78,7 +77,8 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
   - [x] NetworkPolicy: app accepts traffic only from Envoy; enforced on minikube ([HELM.md#network-policy](HELM.md#network-policy))
 - **[L59](../README.md?plain=1#L59): Cluster can pull from registry**
   - [x] e2e preloads the image (`pullPolicy: Never`)
-  - [x] Chart `imagePullSecrets` for a private GHCR package; minikube flows preload the image ([HELM.md#image-pull](HELM.md#image-pull))
+  - [x] GHCR package is public (anonymous pull works); chart supports `imagePullSecrets` if it goes private ([HELM.md#image-pull](HELM.md#image-pull))
+  - [ ] In-cluster pull not tested: minikube flows preload the image
 
 ## CI/CD
 
@@ -101,7 +101,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 ## Evaluation
 
 - **[L83](../README.md?plain=1#L83): Container Security**: see L49–L53
-  - [x] Gate: trivy config KSV-0003 (drop `ALL` capabilities)
+  - [x] Drop `ALL` capabilities enforced by PSA `restricted` in e2e ([HELM.md#pod-security-admission](HELM.md#pod-security-admission))
 - **[L84](../README.md?plain=1#L84): Kubernetes Manifests and best practices**
   - [x] Helm chart, `helm lint --strict`, `kubeconform -strict` incl. CRDs ([CI.md#chart-lint](CI.md#chart-lint))
   - [x] README-traced kube-linter policy, gating ([CI.md#gating](CI.md#gating))
@@ -121,7 +121,7 @@ Each bold line quotes a requirement from the assignment [README](../README.md), 
 - **[L90](../README.md?plain=1#L90)–[L94](../README.md?plain=1#L94): Architecture decisions, Scaling strategy, Cloud deployment considerations, Security measures, Maintaining image versions and tags and removing old ones**
   - [x] Per-area reference docs (`CI.md`, `CONTAINER.md`, `HELM.md`, `LOCAL-TESTING.md`), [CHANGELOG.md](CHANGELOG.md) per PR
   - [x] [EXPLAIN.md](EXPLAIN.md): deployment, scaling, security, CI/CD, versioning, EKS, global pulls, stale versions
-  - [x] Weekly GHCR cleanup (`cleanup.yml`): keeps releases, recent commits, live-branch caches and index children; dry-run on demand ([CI.md#image-cleanup](CI.md#image-cleanup))
+  - [x] Weekly GHCR cleanup (`cleanup.yml`): keeps releases, recent commits, live-branch caches and index children; dry-run on demand ([CI.md#image-cleanup](CI.md#image-cleanup)) Not run yet
 
 ## Deliverables
 

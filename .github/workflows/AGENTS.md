@@ -12,7 +12,7 @@ Rules for every workflow in this directory. Repo-wide rules: [../../AGENTS.md](.
 - Images are built once for both arches and go to GHCR as the multi-arch `<image>:<sha>` (full commit SHA). The registry cache is `<branch-slug>-cache`, falling back to `main-cache` ([docs/CI.md#image-tags](../../docs/CI.md#image-tags)). Image names, registry hosts and slugs come from `gather-metadata` outputs, never hand-built.
 - Steps that can't work under act (artifact upload/download) set `continue-on-error: ${{ !!env.ACT }}`: non-fatal locally, blocking on GitHub. Run workflows locally through `.github/scripts/act.sh` ([docs/LOCAL-TESTING.md#act-wrapper](../../docs/LOCAL-TESTING.md#act-wrapper)).
 - Default `permissions: contents: read`. A job that pushes images adds `packages: write`. A job that only pulls adds `packages: read`.
-- Security scans are never inlined. Call [`scan-source.yml`](scan-source.yml) / [`scan-image.yml`](scan-image.yml) / [`scan-repo.yml`](scan-repo.yml), so CI and release run identical checks ([docs/CI.md#reusable-scans](../../docs/CI.md#reusable-scans)).
+- Security scans are never inlined. Call [`scan-image.yml`](scan-image.yml) / [`scan-repo.yml`](scan-repo.yml), so CI and release run identical checks ([docs/CI.md#reusable-scans](../../docs/CI.md#reusable-scans)).
 - Inside reusable workflows, log in with `${{ github.token }}`, not `secrets.GITHUB_TOKEN`. act doesn't pass secrets into called workflows.
 - Untrusted values (`head_ref`, commit messages, inputs) go through `env:`, never inline `${{ }}` in `run:` ([docs/CI.md#script-injection](../../docs/CI.md#script-injection)).
 
@@ -27,8 +27,8 @@ Every run summary ends with two tables, **Tests** and **Security**: rows are che
     security|gosec (SAST)|${{ steps.gosec.outcome }}|${{ steps.gosec.conclusion }}
   ```
 - Row kind:
-  - `tests`: does it build and behave correctly? Linters, `go vet`, staticcheck, e2e suites, `helm lint`/`template`, kubeconform, kube-linter, static-binary check.
-  - `security`: could it ship a vulnerability or exposure? gosec (SAST), govulncheck (SCA), trivy image, trivy config, secret scanning.
+  - `tests`: does it build and behave correctly? `go vet`, e2e suites, `helm lint`/`template`, kubeconform, kube-linter, static-binary check.
+  - `security`: could it ship a vulnerability or exposure? golangci-lint (incl. gosec SAST), trivy image, gitleaks.
 - Check names are identical across jobs and workflows, so one check is one row.
 - Placeholder steps (`echo "TODO ..."`) are not recorded.
 
